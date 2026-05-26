@@ -15,8 +15,17 @@ import {
   Wrench,
   Package,
   ArrowRight,
+  Search,
+  X,
+  Edit,
+  Trash2,
+  Plus,
+  Save,
 } from "lucide-react";
 
+// ============================================
+// 类型定义
+// ============================================
 type Accessory = {
   name: string;
   value: number;
@@ -34,7 +43,8 @@ type Brand = {
   models: PrinterModel[];
 };
 
-const BRANDS: Brand[] = [
+// 初始数据
+const INITIAL_BRANDS: Brand[] = [
   {
     name: "拓竹",
     models: [
@@ -139,20 +149,157 @@ const FAULT_OPTIONS = [
 type Step = "brand" | "model" | "condition" | "usage" | "fault" | "accessories" | "contact";
 
 // ============================================
-// 后台管理页面组件
+// 用户订单查询组件
+// ============================================
+function OrderQueryPage() {
+  const [phoneNumber, setPhoneNumber] = useState("")
+  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [hasSearched, setHasSearched] = useState(false)
+
+  const searchOrders = async () => {
+    if (!phoneNumber || !/^1[3-9]\d{9}$/.test(phoneNumber)) {
+      alert("请输入正确的手机号码")
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/order-query?phone=${phoneNumber}`)
+      const data = await res.json()
+      if (data.success) {
+        setOrders(data.data)
+      } else {
+        alert(data.error || "查询失败")
+      }
+    } catch (error) {
+      console.error("查询失败:", error)
+      alert("查询失败，请稍后重试")
+    } finally {
+      setLoading(false)
+      setHasSearched(true)
+    }
+  }
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'PENDING': return '待审核'
+      case 'PROCESSING': return '处理中'
+      case 'COMPLETED': return '已完成'
+      case 'CANCELLED': return '已取消'
+      default: return status
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'PENDING': return 'bg-yellow-100 text-yellow-800'
+      case 'PROCESSING': return 'bg-blue-100 text-blue-800'
+      case 'COMPLETED': return 'bg-green-100 text-green-800'
+      case 'CANCELLED': return 'bg-red-100 text-red-800'
+      default: return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100">
+      <div className="bg-white border-b">
+        <div className="max-w-md mx-auto px-4 py-4">
+          <h1 className="text-xl font-bold">订单查询</h1>
+          <p className="text-sm text-neutral-500 mt-1">输入手机号查询您的回收订单</p>
+        </div>
+      </div>
+
+      <div className="max-w-md mx-auto p-4">
+        <div className="bg-white rounded-3xl p-6 shadow-sm">
+          <div className="flex gap-3">
+            <input
+              type="tel"
+              placeholder="请输入手机号码"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              className="flex-1 rounded-xl border border-neutral-200 px-4 py-3 text-base focus:outline-none focus:border-black"
+            />
+            <button
+              onClick={searchOrders}
+              disabled={loading}
+              className="bg-black text-white px-6 py-3 rounded-xl font-medium disabled:opacity-50"
+            >
+              {loading ? "查询中..." : <Search size={20} />}
+            </button>
+          </div>
+        </div>
+
+        {hasSearched && (
+          <div className="mt-4 space-y-3">
+            {loading ? (
+              <div className="text-center py-12">加载中...</div>
+            ) : orders.length === 0 ? (
+              <div className="bg-white rounded-3xl p-12 text-center">
+                <p className="text-neutral-500">暂无订单记录</p>
+              </div>
+            ) : (
+              orders.map((order) => (
+                <div key={order.id} className="bg-white rounded-2xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-mono text-sm text-gray-500">{order.orderNo}</span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
+                      {getStatusText(order.status)}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">设备</span>
+                      <span className="font-medium">{order.brand} {order.model}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">估价</span>
+                      <span className="font-bold text-lg">¥{order.estimatePrice}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">提交时间</span>
+                      <span className="text-sm">{new Date(order.createdAt).toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ============================================
+// 后台管理页面组件（增强版）
 // ============================================
 function AdminPage() {
+  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'coefficients'>('orders')
   const [orders, setOrders] = useState<any[]>([])
+  const [brands, setBrands] = useState<Brand[]>(INITIAL_BRANDS)
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState('all')
   const [password, setPassword] = useState('')
   const [isAuthed, setIsAuthed] = useState(false)
+  
+  // 编辑状态
+  const [editingBrand, setEditingBrand] = useState<string | null>(null)
+  const [editingModel, setEditingModel] = useState<{ brand: string; model: string } | null>(null)
+  const [newBrandName, setNewBrandName] = useState('')
+  const [newModel, setNewModel] = useState<Partial<PrinterModel>>({})
+  
+  // 系数编辑
+  const [editingCondition, setEditingCondition] = useState<string | null>(null)
+  const [editingUsage, setEditingUsage] = useState<string | null>(null)
+  const [editingFault, setEditingFault] = useState<string | null>(null)
 
   const ADMIN_KEY = 'admin123456'
 
   const handleLogin = () => {
     if (password === ADMIN_KEY) {
       setIsAuthed(true)
+      fetchOrders()
     } else {
       alert('密码错误')
     }
@@ -174,12 +321,6 @@ function AdminPage() {
     }
   }
 
-  useEffect(() => {
-    if (isAuthed) {
-      fetchOrders()
-    }
-  }, [status, isAuthed])
-
   const updateOrderStatus = async (id: string, newStatus: string) => {
     try {
       const res = await fetch('/api/admin-orders', {
@@ -198,6 +339,83 @@ function AdminPage() {
       alert('更新失败')
     }
   }
+
+  // 添加品牌
+  const addBrand = () => {
+    if (!newBrandName) return
+    setBrands([...brands, { name: newBrandName, models: [] }])
+    setNewBrandName('')
+  }
+
+  // 删除品牌
+  const deleteBrand = (brandName: string) => {
+    if (confirm(`确定要删除品牌 "${brandName}" 吗？`)) {
+      setBrands(brands.filter(b => b.name !== brandName))
+    }
+  }
+
+  // 添加型号
+  const addModel = (brandName: string) => {
+    if (!newModel.name) return
+    setBrands(brands.map(b => {
+      if (b.name === brandName) {
+        return {
+          ...b,
+          models: [...b.models, {
+            name: newModel.name!,
+            releaseYear: newModel.releaseYear || 2024,
+            originalPrice: newModel.originalPrice || 0,
+            accessories: newModel.accessories || []
+          }]
+        }
+      }
+      return b
+    }))
+    setNewModel({})
+  }
+
+  // 删除型号
+  const deleteModel = (brandName: string, modelName: string) => {
+    if (confirm(`确定要删除型号 "${modelName}" 吗？`)) {
+      setBrands(brands.map(b => {
+        if (b.name === brandName) {
+          return { ...b, models: b.models.filter(m => m.name !== modelName) }
+        }
+        return b
+      }))
+    }
+  }
+
+  // 更新系数
+  const updateConditionFactor = (label: string, factor: number) => {
+    const index = CONDITIONS.findIndex(c => c.label === label)
+    if (index !== -1) {
+      CONDITIONS[index].factor = factor
+    }
+    setEditingCondition(null)
+  }
+
+  const updateUsageFactor = (label: string, factor: number) => {
+    const index = USAGE_OPTIONS.findIndex(u => u.label === label)
+    if (index !== -1) {
+      USAGE_OPTIONS[index].factor = factor
+    }
+    setEditingUsage(null)
+  }
+
+  const updateFaultFactor = (label: string, factor: number) => {
+    const index = FAULT_OPTIONS.findIndex(f => f.label === label)
+    if (index !== -1) {
+      FAULT_OPTIONS[index].factor = factor
+    }
+    setEditingFault(null)
+  }
+
+  useEffect(() => {
+    if (isAuthed) {
+      fetchOrders()
+    }
+  }, [status, isAuthed])
 
   const getStatusText = (status: string) => {
     switch (status) {
@@ -239,8 +457,8 @@ function AdminPage() {
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold">订单管理后台</h1>
-              <p className="text-gray-500 mt-1">管理所有回收订单</p>
+              <h1 className="text-2xl font-bold">3D打印机回收后台</h1>
+              <p className="text-gray-500 mt-1">管理订单、产品和估价系数</p>
             </div>
             <button
               onClick={() => setIsAuthed(false)}
@@ -249,115 +467,367 @@ function AdminPage() {
               退出登录
             </button>
           </div>
+          
+          {/* Tab 切换 */}
+          <div className="flex gap-4 mt-6 border-b">
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`pb-3 px-2 text-sm font-medium transition ${
+                activeTab === 'orders' ? 'text-black border-b-2 border-black' : 'text-gray-500'
+              }`}
+            >
+              订单管理
+            </button>
+            <button
+              onClick={() => setActiveTab('products')}
+              className={`pb-3 px-2 text-sm font-medium transition ${
+                activeTab === 'products' ? 'text-black border-b-2 border-black' : 'text-gray-500'
+              }`}
+            >
+              产品管理
+            </button>
+            <button
+              onClick={() => setActiveTab('coefficients')}
+              className={`pb-3 px-2 text-sm font-medium transition ${
+                activeTab === 'coefficients' ? 'text-black border-b-2 border-black' : 'text-gray-500'
+              }`}
+            >
+              系数设置
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* 状态筛选 */}
-        <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
-          {['all', 'PENDING', 'PROCESSING', 'COMPLETED', 'CANCELLED'].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatus(s)}
-              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${
-                status === s
-                  ? 'bg-black text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              {s === 'all' ? '全部订单' : getStatusText(s)}
-            </button>
-          ))}
-        </div>
+        {/* 订单管理 */}
+        {activeTab === 'orders' && (
+          <>
+            <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
+              {['all', 'PENDING', 'PROCESSING', 'COMPLETED', 'CANCELLED'].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatus(s)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${
+                    status === s ? 'bg-black text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  {s === 'all' ? '全部订单' : getStatusText(s)}
+                </button>
+              ))}
+            </div>
 
-        {/* 统计卡片 */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-2xl p-4">
-            <div className="text-gray-500 text-sm">总订单</div>
-            <div className="text-2xl font-bold mt-1">{orders.length}</div>
-          </div>
-          <div className="bg-white rounded-2xl p-4">
-            <div className="text-gray-500 text-sm">待审核</div>
-            <div className="text-2xl font-bold mt-1 text-yellow-600">
-              {orders.filter(o => o.status === 'PENDING').length}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white rounded-2xl p-4">
+                <div className="text-gray-500 text-sm">总订单</div>
+                <div className="text-2xl font-bold mt-1">{orders.length}</div>
+              </div>
+              <div className="bg-white rounded-2xl p-4">
+                <div className="text-gray-500 text-sm">待审核</div>
+                <div className="text-2xl font-bold mt-1 text-yellow-600">
+                  {orders.filter(o => o.status === 'PENDING').length}
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl p-4">
+                <div className="text-gray-500 text-sm">处理中</div>
+                <div className="text-2xl font-bold mt-1 text-blue-600">
+                  {orders.filter(o => o.status === 'PROCESSING').length}
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl p-4">
+                <div className="text-gray-500 text-sm">已完成</div>
+                <div className="text-2xl font-bold mt-1 text-green-600">
+                  {orders.filter(o => o.status === 'COMPLETED').length}
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="bg-white rounded-2xl p-4">
-            <div className="text-gray-500 text-sm">处理中</div>
-            <div className="text-2xl font-bold mt-1 text-blue-600">
-              {orders.filter(o => o.status === 'PROCESSING').length}
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl p-4">
-            <div className="text-gray-500 text-sm">已完成</div>
-            <div className="text-2xl font-bold mt-1 text-green-600">
-              {orders.filter(o => o.status === 'COMPLETED').length}
-            </div>
-          </div>
-        </div>
 
-        {/* 订单列表 */}
-        {loading ? (
-          <div className="text-center py-12">加载中...</div>
-        ) : orders.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">暂无订单</div>
-        ) : (
-          <div className="space-y-4">
-            {orders.map((order) => (
-              <div key={order.id} className="bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-sm text-gray-500">{order.orderNo}</span>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        order.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
-                        order.status === 'PROCESSING' ? 'bg-blue-100 text-blue-800' :
-                        order.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {getStatusText(order.status)}
-                      </span>
+            {loading ? (
+              <div className="text-center py-12">加载中...</div>
+            ) : orders.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">暂无订单</div>
+            ) : (
+              <div className="space-y-4">
+                {orders.map((order) => (
+                  <div key={order.id} className="bg-white rounded-2xl p-5 shadow-sm">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-sm text-gray-500">{order.orderNo}</span>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            order.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
+                            order.status === 'PROCESSING' ? 'bg-blue-100 text-blue-800' :
+                            order.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {getStatusText(order.status)}
+                          </span>
+                        </div>
+                        <div className="mt-2">
+                          <div className="font-semibold text-lg">{order.brand} {order.model}</div>
+                          <div className="text-sm text-gray-500 mt-1">估价: ¥{order.estimatePrice}</div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="mt-2">
-                      <div className="font-semibold text-lg">{order.brand} {order.model}</div>
-                      <div className="text-sm text-gray-500 mt-1">估价: ¥{order.estimatePrice}</div>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="text-gray-500">
+                        {new Date(order.createdAt).toLocaleString()}
+                      </div>
+                      <div className="flex gap-2">
+                        {order.status === 'PENDING' && (
+                          <>
+                            <button
+                              onClick={() => updateOrderStatus(order.id, 'PROCESSING')}
+                              className="px-3 py-1 bg-blue-500 text-white rounded-lg text-sm"
+                            >
+                              开始处理
+                            </button>
+                            <button
+                              onClick={() => updateOrderStatus(order.id, 'CANCELLED')}
+                              className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm"
+                            >
+                              取消
+                            </button>
+                          </>
+                        )}
+                        {order.status === 'PROCESSING' && (
+                          <button
+                            onClick={() => updateOrderStatus(order.id, 'COMPLETED')}
+                            className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm"
+                          >
+                            完成
+                          </button>
+                        )}
+                      </div>
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* 产品管理 */}
+        {activeTab === 'products' && (
+          <div className="space-y-6">
+            {/* 添加品牌 */}
+            <div className="bg-white rounded-2xl p-6">
+              <h3 className="font-semibold mb-4">添加新品牌</h3>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  placeholder="品牌名称"
+                  value={newBrandName}
+                  onChange={(e) => setNewBrandName(e.target.value)}
+                  className="flex-1 border rounded-xl px-4 py-2 focus:outline-none focus:border-black"
+                />
+                <button
+                  onClick={addBrand}
+                  className="bg-black text-white px-4 py-2 rounded-xl flex items-center gap-2"
+                >
+                  <Plus size={16} /> 添加
+                </button>
+              </div>
+            </div>
+
+            {/* 品牌列表 */}
+            {brands.map((brand) => (
+              <div key={brand.name} className="bg-white rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">{brand.name}</h3>
+                  <button
+                    onClick={() => deleteBrand(brand.name)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+
+                {/* 添加型号 */}
+                <div className="mb-4 p-4 bg-gray-50 rounded-xl">
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      type="text"
+                      placeholder="型号名称"
+                      value={newModel.name || ''}
+                      onChange={(e) => setNewModel({ ...newModel, name: e.target.value })}
+                      className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                    />
+                    <input
+                      type="number"
+                      placeholder="年份"
+                      value={newModel.releaseYear || ''}
+                      onChange={(e) => setNewModel({ ...newModel, releaseYear: parseInt(e.target.value) })}
+                      className="w-24 border rounded-lg px-3 py-2 text-sm"
+                    />
+                    <input
+                      type="number"
+                      placeholder="原价"
+                      value={newModel.originalPrice || ''}
+                      onChange={(e) => setNewModel({ ...newModel, originalPrice: parseInt(e.target.value) })}
+                      className="w-28 border rounded-lg px-3 py-2 text-sm"
+                    />
+                    <button
+                      onClick={() => addModel(brand.name)}
+                      className="bg-black text-white px-3 py-2 rounded-lg text-sm"
+                    >
+                      添加
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-sm">
-                  <div className="text-gray-500">
-                    {new Date(order.createdAt).toLocaleString()}
-                  </div>
-                  <div className="flex gap-2">
-                    {order.status === 'PENDING' && (
-                      <>
-                        <button
-                          onClick={() => updateOrderStatus(order.id, 'PROCESSING')}
-                          className="px-3 py-1 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600"
-                        >
-                          开始处理
-                        </button>
-                        <button
-                          onClick={() => updateOrderStatus(order.id, 'CANCELLED')}
-                          className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600"
-                        >
-                          取消订单
-                        </button>
-                      </>
-                    )}
-                    {order.status === 'PROCESSING' && (
+                {/* 型号列表 */}
+                <div className="space-y-2">
+                  {brand.models.map((model) => (
+                    <div key={model.name} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                      <div>
+                        <div className="font-medium">{model.name}</div>
+                        <div className="text-sm text-gray-500">{model.releaseYear}年 · ¥{model.originalPrice}</div>
+                      </div>
                       <button
-                        onClick={() => updateOrderStatus(order.id, 'COMPLETED')}
-                        className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600"
+                        onClick={() => deleteModel(brand.name, model.name)}
+                        className="text-red-500 hover:text-red-700"
                       >
-                        完成回收
+                        <Trash2 size={16} />
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* 系数设置 */}
+        {activeTab === 'coefficients' && (
+          <div className="space-y-6">
+            {/* 成色系数 */}
+            <div className="bg-white rounded-2xl p-6">
+              <h3 className="font-semibold mb-4">成色系数</h3>
+              <div className="space-y-3">
+                {CONDITIONS.map((c) => (
+                  <div key={c.label} className="flex items-center justify-between">
+                    <span className="w-24">{c.label}</span>
+                    {editingCondition === c.label ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          defaultValue={c.factor}
+                          id={`factor-${c.label}`}
+                          className="w-24 border rounded-lg px-3 py-1"
+                        />
+                        <button
+                          onClick={() => {
+                            const input = document.getElementById(`factor-${c.label}`) as HTMLInputElement
+                            updateConditionFactor(c.label, parseFloat(input.value))
+                          }}
+                          className="text-green-600"
+                        >
+                          <Save size={16} />
+                        </button>
+                        <button onClick={() => setEditingCondition(null)} className="text-gray-500">
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-blue-600">{c.factor}</span>
+                        <button onClick={() => setEditingCondition(c.label)} className="text-gray-400 hover:text-gray-600">
+                          <Edit size={14} />
+                        </button>
+                      </div>
+                    )}
+                    <span className="text-sm text-gray-500 w-32 text-right">{c.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 使用时间系数 */}
+            <div className="bg-white rounded-2xl p-6">
+              <h3 className="font-semibold mb-4">使用时间系数</h3>
+              <div className="space-y-3">
+                {USAGE_OPTIONS.map((u) => (
+                  <div key={u.label} className="flex items-center justify-between">
+                    <span className="w-32">{u.label}</span>
+                    {editingUsage === u.label ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          defaultValue={u.factor}
+                          id={`usage-${u.label}`}
+                          className="w-24 border rounded-lg px-3 py-1"
+                        />
+                        <button
+                          onClick={() => {
+                            const input = document.getElementById(`usage-${u.label}`) as HTMLInputElement
+                            updateUsageFactor(u.label, parseFloat(input.value))
+                          }}
+                          className="text-green-600"
+                        >
+                          <Save size={16} />
+                        </button>
+                        <button onClick={() => setEditingUsage(null)} className="text-gray-500">
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-blue-600">{u.factor}</span>
+                        <button onClick={() => setEditingUsage(u.label)} className="text-gray-400 hover:text-gray-600">
+                          <Edit size={14} />
+                        </button>
+                      </div>
+                    )}
+                    <span className="text-sm text-gray-500 w-32 text-right">{u.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 故障系数 */}
+            <div className="bg-white rounded-2xl p-6">
+              <h3 className="font-semibold mb-4">功能故障系数</h3>
+              <div className="space-y-3">
+                {FAULT_OPTIONS.map((f) => (
+                  <div key={f.label} className="flex items-center justify-between">
+                    <span className="w-32">{f.label}</span>
+                    {editingFault === f.label ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          defaultValue={f.factor}
+                          id={`fault-${f.label}`}
+                          className="w-24 border rounded-lg px-3 py-1"
+                        />
+                        <button
+                          onClick={() => {
+                            const input = document.getElementById(`fault-${f.label}`) as HTMLInputElement
+                            updateFaultFactor(f.label, parseFloat(input.value))
+                          }}
+                          className="text-green-600"
+                        >
+                          <Save size={16} />
+                        </button>
+                        <button onClick={() => setEditingFault(null)} className="text-gray-500">
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-blue-600">{f.factor}</span>
+                        <button onClick={() => setEditingFault(f.label)} className="text-gray-400 hover:text-gray-600">
+                          <Edit size={14} />
+                        </button>
+                      </div>
+                    )}
+                    <span className="text-sm text-gray-500 w-32 text-right">{f.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -366,7 +836,7 @@ function AdminPage() {
 }
 
 // ============================================
-// 用户回收页面组件
+// 用户回收页面组件（带图片预览）
 // ============================================
 function RecyclePage() {
   const [currentStep, setCurrentStep] = useState<Step>("brand");
@@ -378,12 +848,13 @@ function RecyclePage() {
   const [selectedAccessories, setSelectedAccessories] = useState<string[]>([]);
   const [phoneNumber, setPhoneNumber] = useState("");
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showEstimate, setShowEstimate] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [touchStart, setTouchStart] = useState<number>(0);
 
-  const brand = useMemo(() => BRANDS.find((b) => b.name === brandName)!, [brandName]);
+  const brand = useMemo(() => INITIAL_BRANDS.find((b) => b.name === brandName)!, [brandName]);
   const model = useMemo(
     () => brand.models.find((m) => m.name === modelName)!,
     [brand, modelName]
@@ -459,7 +930,14 @@ function RecyclePage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setUploadedImage(e.target.files[0]);
+      const file = e.target.files[0];
+      setUploadedImage(file);
+      // 生成缩略图预览
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -472,8 +950,22 @@ function RecyclePage() {
     setIsSubmitting(true);
 
     try {
-      console.log('开始提交订单...');
-      
+      // 先上传图片（如果有）
+      let imageUrl = '';
+      if (uploadedImage) {
+        const formData = new FormData();
+        formData.append('image', uploadedImage);
+        
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        const uploadData = await uploadRes.json();
+        if (uploadData.success) {
+          imageUrl = uploadData.url;
+        }
+      }
+
       const response = await fetch('/api/order', {
         method: 'POST',
         headers: {
@@ -488,18 +980,17 @@ function RecyclePage() {
           fault: fault,
           accessories: JSON.stringify(selectedAccessories),
           estimate: estimate.toString(),
+          imageUrl: imageUrl,
         }),
       });
 
-      console.log('响应状态:', response.status);
-      
       const data = await response.json();
-      console.log('响应数据:', data);
       
       if (response.ok && data.success) {
         alert('提交成功！订单号：' + data.data.orderNo);
         setPhoneNumber("");
         setUploadedImage(null);
+        setImagePreview(null);
         setShowEstimate(false);
         setCurrentStep("brand");
         if (fileInputRef.current) {
@@ -510,7 +1001,7 @@ function RecyclePage() {
       }
     } catch (error) {
       console.error('Submit error:', error);
-      alert('提交失败：' + error.message);
+      alert('提交失败：' + (error as Error).message);
     } finally {
       setIsSubmitting(false);
     }
@@ -521,7 +1012,7 @@ function RecyclePage() {
       case "brand":
         return (
           <div className="space-y-3">
-            {BRANDS.map((b) => (
+            {INITIAL_BRANDS.map((b) => (
               <button
                 key={b.name}
                 onClick={() => {
@@ -726,8 +1217,8 @@ function RecyclePage() {
 
             <div className="bg-white rounded-2xl p-6 shadow-sm">
               <label className="block text-sm font-medium mb-3">上传设备图片（可选）</label>
-              <label className="border-2 border-dashed border-neutral-300 rounded-2xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:border-black transition">
-                <Upload size={40} className="text-neutral-400" />
+              <label className="border-2 border-dashed border-neutral-300 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-black transition">
+                <Camera size={40} className="text-neutral-400" />
                 <div className="mt-3 font-medium">{uploadedImage ? uploadedImage.name : "点击上传打印机图片"}</div>
                 <div className="text-sm text-neutral-500 mt-1">支持 JPG / PNG</div>
                 <input
@@ -739,9 +1230,30 @@ function RecyclePage() {
                   multiple={false}
                 />
               </label>
-              {uploadedImage && (
-                <div className="mt-3 text-sm text-green-600 flex items-center gap-2">
-                  <Check size={16} /> 已上传：{uploadedImage.name}
+              
+              {/* 图片缩略图预览 */}
+              {imagePreview && (
+                <div className="mt-4">
+                  <div className="text-sm text-gray-500 mb-2">图片预览：</div>
+                  <div className="relative inline-block">
+                    <img
+                      src={imagePreview}
+                      alt="预览"
+                      className="w-32 h-32 object-cover rounded-xl border"
+                    />
+                    <button
+                      onClick={() => {
+                        setUploadedImage(null);
+                        setImagePreview(null);
+                        if (fileInputRef.current) {
+                          fileInputRef.current.value = "";
+                        }
+                      }}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -760,35 +1272,29 @@ function RecyclePage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 pb-20">
-      {!showEstimate && (
-        <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-neutral-200">
-          <div className="max-w-md mx-auto px-4 py-3">
-            <div className="flex items-center justify-between mb-3">
-              <button
-                onClick={prevStep}
-                className={`p-2 rounded-full transition ${currentIndex === 0 ? "opacity-0 pointer-events-none" : "hover:bg-neutral-100"}`}
-              >
-                <ChevronLeft size={24} />
-              </button>
-              <div className="text-center">
-                <div className="text-sm font-medium">{steps[currentIndex].title}</div>
-                <div className="text-xs text-neutral-500 mt-0.5">
-                  第 {currentIndex + 1} / {steps.length} 步
-                </div>
-              </div>
-              <div className="w-10" />
+      {/* 顶部导航 - 添加订单查询入口 */}
+      <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-neutral-200">
+        <div className="max-w-md mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold">3D打印机回收</h1>
+              <p className="text-xs text-neutral-500">在线估价 · 极速回收</p>
             </div>
-            <div className="h-1.5 bg-neutral-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-black transition-all duration-300 rounded-full"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
+            <a
+              href="/?query=true"
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.href = '/?query=true';
+              }}
+              className="text-sm text-neutral-600 hover:text-black flex items-center gap-1"
+            >
+              <Search size={16} /> 查询订单
+            </a>
           </div>
         </div>
-      )}
+      </div>
 
-      {!showEstimate && currentStep !== "contact" && (
+      {!showEstimate && (
         <div className="sticky top-[73px] z-40 bg-gradient-to-r from-black to-neutral-800 text-white mx-4 mt-4 rounded-2xl p-4 shadow-lg">
           <div className="flex items-center justify-between">
             <div>
@@ -899,11 +1405,15 @@ function RecyclePage() {
 // 主入口 - 根据路由显示不同页面
 // ============================================
 export default function App() {
-  // 检查是否是后台页面
-  const isAdmin = window.location.pathname === '/admin' || window.location.hash === '#admin'
+  const isAdmin = window.location.pathname === '/admin' || window.location.search.includes('admin=true')
+  const isQuery = window.location.search.includes('query=true')
   
   if (isAdmin) {
     return <AdminPage />
+  }
+  
+  if (isQuery) {
+    return <OrderQueryPage />
   }
   
   return <RecyclePage />

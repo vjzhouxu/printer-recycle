@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_ANON_KEY
-)
+const supabaseUrl = process.env.VITE_SUPABASE_URL
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY
+
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 function generateOrderNo() {
   const date = new Date()
@@ -15,7 +15,6 @@ function generateOrderNo() {
 }
 
 export default async function handler(req, res) {
-  // 设置 CORS 头
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
@@ -31,26 +30,34 @@ export default async function handler(req, res) {
   try {
     const { 
       brand, model, phone, condition, usage, fault, 
-      accessories, estimate
+      accessories, estimate, imageUrl
     } = req.body
 
-    console.log('收到订单:', { brand, model, phone })
+    console.log('收到订单:', { brand, model, phone, estimate })
 
-    // 保存订单到 Supabase
+    if (!brand || !model || !phone) {
+      return res.status(400).json({ error: '缺少必填字段' })
+    }
+
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
+      return res.status(400).json({ error: '手机号格式不正确' })
+    }
+
     const orderNo = generateOrderNo()
+    
     const { data: order, error } = await supabase
       .from('orders')
       .insert({
         orderNo,
         brand,
         model,
-        condition,
-        usage,
-        fault,
+        condition: condition || '95新',
+        usage: usage || '100小时内',
+        fault: fault || '无故障',
         accessories: accessories || '[]',
-        estimatePrice: parseInt(estimate),
+        estimatePrice: parseInt(estimate) || 0,
         phone,
-        imageUrl: '',
+        imageUrl: imageUrl || '',
         status: 'PENDING',
         createdAt: new Date().toISOString()
       })
@@ -58,7 +65,7 @@ export default async function handler(req, res) {
       .single()
 
     if (error) {
-      console.error('保存订单失败:', error)
+      console.error('Supabase 错误:', error)
       return res.status(500).json({ error: error.message })
     }
 
@@ -70,6 +77,6 @@ export default async function handler(req, res) {
     })
   } catch (error) {
     console.error('服务器错误:', error)
-    res.status(500).json({ error: '服务器错误' })
+    res.status(500).json({ error: error.message || '服务器错误' })
   }
 }
