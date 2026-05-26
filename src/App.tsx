@@ -1336,7 +1336,7 @@ function AdminPage() {
 }
 
 // ============================================
-// 用户回收页面组件
+// 用户回收页面组件（已隐藏原价）
 // ============================================
 function RecyclePage() {
   const [currentStep, setCurrentStep] = useState<Step>("brand");
@@ -1544,13 +1544,17 @@ function RecyclePage() {
                   setSelectedAccessories([]);
                   nextStep();
                 }}
-                className="w-full bg-white rounded-2xl p-5 text-left transition-all hover:scale-[1.02] active:scale-[0.98] shadow-sm"
+                className={`w-full bg-white rounded-2xl p-5 text-left transition-all hover:scale-[1.02] active:scale-[0.98] shadow-sm ${
+                  modelName === m.name
+                    ? "border-2 border-black bg-neutral-50"
+                    : "border border-neutral-200"
+                }`}
               >
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-semibold text-lg">{m.name}</div>
                     <div className="text-sm text-neutral-500 mt-1">
-                      {m.releaseYear}年上市 · 原价 ¥{m.originalPrice}
+                      {m.releaseYear}年上市
                     </div>
                   </div>
                   <ChevronRight className="text-neutral-400" />

@@ -8,14 +8,17 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 const ADMIN_KEY = 'admin123456'
 
 export default async function handler(req, res) {
+  // 设置 CORS
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Content-Type', 'application/json')
   
   if (req.method === 'OPTIONS') {
     return res.status(200).end()
   }
   
+  // 验证管理员密钥
   const authHeader = req.headers.authorization
   if (authHeader !== `Bearer ${ADMIN_KEY}`) {
     return res.status(401).json({ error: '未授权' })
@@ -37,6 +40,7 @@ export default async function handler(req, res) {
       
       res.status(200).json({ success: true, data: orders })
     } catch (error) {
+      console.error('查询错误:', error)
       res.status(500).json({ error: error.message })
     }
   }
@@ -45,6 +49,10 @@ export default async function handler(req, res) {
   else if (req.method === 'PUT') {
     try {
       const { id, status, remark, finalPrice } = req.body
+      
+      if (!id) {
+        return res.status(400).json({ error: '缺少订单ID' })
+      }
       
       const updateData = {}
       if (status !== undefined) updateData.status = status
@@ -63,6 +71,7 @@ export default async function handler(req, res) {
       
       res.status(200).json({ success: true, data: order })
     } catch (error) {
+      console.error('更新错误:', error)
       res.status(500).json({ error: error.message })
     }
   }
