@@ -62,6 +62,30 @@ type User = {
   createdAt: string;
 };
 
+// 默认系数数据（作为后备）
+const DEFAULT_CONDITIONS = [
+  { label: "99新", factor: 1.1, description: "几乎全新，无使用痕迹" },
+  { label: "95新", factor: 1, description: "轻微使用痕迹" },
+  { label: "9成新", factor: 0.9, description: "正常使用痕迹" },
+  { label: "8成新", factor: 0.8, description: "明显使用痕迹" },
+  { label: "7成新", factor: 0.7, description: "较多使用痕迹" },
+];
+
+const DEFAULT_USAGES = [
+  { label: "100小时内", factor: 1, description: "轻度使用" },
+  { label: "100-300小时", factor: 0.95, description: "中度使用" },
+  { label: "301-600小时", factor: 0.88, description: "重度使用" },
+  { label: "601小时以上", factor: 0.78, description: "高强度使用" },
+];
+
+const DEFAULT_FAULTS = [
+  { label: "无故障", factor: 1, description: "所有功能正常" },
+  { label: "喷头异常", factor: 0.88, description: "喷头需要维修" },
+  { label: "热床异常", factor: 0.82, description: "热床需要维修" },
+  { label: "主板异常", factor: 0.7, description: "主板需要维修" },
+  { label: "无法开机", factor: 0.55, description: "无法正常使用" },
+];
+
 // 初始用户数据
 const INITIAL_USERS: User[] = [
   {
@@ -1323,11 +1347,9 @@ function RecyclePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showEstimate, setShowEstimate] = useState(false);
   const [brands, setBrands] = useState<Brand[]>([]);
-  const [coefficients, setCoefficients] = useState<{ conditions: any[], usages: any[], faults: any[] }>({
-    conditions: [],
-    usages: [],
-    faults: []
-  });
+  const [conditions, setConditions] = useState(DEFAULT_CONDITIONS);
+  const [usages, setUsages] = useState(DEFAULT_USAGES);
+  const [faults, setFaults] = useState(DEFAULT_FAULTS);
   const [loading, setLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [touchStart, setTouchStart] = useState<number>(0);
@@ -1336,29 +1358,32 @@ function RecyclePage() {
   useEffect(() => {
     const loadConfig = async () => {
       try {
-        const [productRes, coeffRes] = await Promise.all([
-          fetch('/api/product-config'),
-          fetch('/api/coefficient-config')
-        ]);
-        const productData = await productRes.json();
-        const coeffData = await coeffRes.json();
+        setLoading(true);
         
-        if (productData.success) {
+        // 加载产品配置
+        const productRes = await fetch('/api/product-config');
+        const productData = await productRes.json();
+        
+        if (productData.success && productData.data.length > 0) {
           setBrands(productData.data);
-          if (productData.data.length > 0) {
-            setBrandName(productData.data[0].name);
-            if (productData.data[0].models.length > 0) {
-              setModelName(productData.data[0].models[0].name);
-            }
+          setBrandName(productData.data[0].name);
+          if (productData.data[0].models.length > 0) {
+            setModelName(productData.data[0].models[0].name);
           }
         }
         
-        if (coeffData.success) {
-          setCoefficients({
-            conditions: coeffData.data.filter((c: any) => c.category === 'condition'),
-            usages: coeffData.data.filter((c: any) => c.category === 'usage'),
-            faults: coeffData.data.filter((c: any) => c.category === 'fault')
-          });
+        // 加载系数配置
+        const coeffRes = await fetch('/api/coefficient-config');
+        const coeffData = await coeffRes.json();
+        
+        if (coeffData.success && coeffData.data.length > 0) {
+          const cond = coeffData.data.filter((c: any) => c.category === 'condition');
+          const use = coeffData.data.filter((c: any) => c.category === 'usage');
+          const flt = coeffData.data.filter((c: any) => c.category === 'fault');
+          
+          if (cond.length > 0) setConditions(cond);
+          if (use.length > 0) setUsages(use);
+          if (flt.length > 0) setFaults(flt);
         }
       } catch (error) {
         console.error('加载配置失败:', error);
@@ -1373,9 +1398,9 @@ function RecyclePage() {
   const brand = useMemo(() => brands.find((b) => b.name === brandName), [brands, brandName]);
   const model = useMemo(() => brand?.models.find((m) => m.name === modelName), [brand, modelName]);
 
-  const conditionFactor = coefficients.conditions.find((c) => c.label === condition)?.factor || 1;
-  const usageFactor = coefficients.usages.find((u) => u.label === usage)?.factor || 1;
-  const faultFactor = coefficients.faults.find((f) => f.label === fault)?.factor || 1;
+  const conditionFactor = conditions.find((c) => c.label === condition)?.factor || 1;
+  const usageFactor = usages.find((u) => u.label === usage)?.factor || 1;
+  const faultFactor = faults.find((f) => f.label === fault)?.factor || 1;
 
   const estimate = useMemo(() => {
     if (!model) return 0;
@@ -1520,6 +1545,19 @@ function RecyclePage() {
     }
   };
 
+  // 重新估价
+  const handleReestimate = () => {
+    setShowEstimate(false);
+    setCurrentStep("brand");
+    setSelectedAccessories([]);
+    setPhoneNumber("");
+    setUploadedImage(null);
+    setImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const renderStep = () => {
     switch (currentStep) {
       case "brand":
@@ -1584,7 +1622,7 @@ function RecyclePage() {
       case "condition":
         return (
           <div className="space-y-3">
-            {coefficients.conditions.map((c) => (
+            {conditions.map((c) => (
               <button
                 key={c.label}
                 onClick={() => {
@@ -1614,7 +1652,7 @@ function RecyclePage() {
       case "usage":
         return (
           <div className="space-y-3">
-            {coefficients.usages.map((u) => (
+            {usages.map((u) => (
               <button
                 key={u.label}
                 onClick={() => {
@@ -1644,7 +1682,7 @@ function RecyclePage() {
       case "fault":
         return (
           <div className="space-y-3">
-            {coefficients.faults.map((f) => (
+            {faults.map((f) => (
               <button
                 key={f.label}
                 onClick={() => {
@@ -1798,6 +1836,7 @@ function RecyclePage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 pb-20">
+      {/* 顶部导航 */}
       <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-neutral-200">
         <div className="max-w-md mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
@@ -1819,21 +1858,49 @@ function RecyclePage() {
         </div>
       </div>
 
+      {/* 进度条和返回按钮 */}
       {!showEstimate && (
-        <div className="sticky top-[73px] z-40 bg-gradient-to-r from-black to-neutral-800 text-white mx-4 mt-4 rounded-2xl p-4 shadow-lg">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs opacity-70">当前估价</div>
-              <div className="text-2xl font-bold">¥{estimate}</div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs opacity-70">{brandName}</div>
-              <div className="text-sm font-medium">{modelName}</div>
+        <>
+          <div className="sticky top-[73px] z-40 bg-white border-b border-neutral-200">
+            <div className="max-w-md mx-auto px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <button
+                  onClick={prevStep}
+                  className={`p-2 rounded-full transition ${currentIndex === 0 ? "invisible" : "hover:bg-neutral-100"}`}
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <div className="text-sm text-neutral-500">
+                  第 {currentIndex + 1} / {steps.length} 步
+                </div>
+                <div className="w-9" />
+              </div>
+              <div className="h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-black transition-all duration-300 rounded-full"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* 估价卡片 */}
+          <div className="sticky top-[129px] z-40 bg-gradient-to-r from-black to-neutral-800 text-white mx-4 mt-4 rounded-2xl p-4 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs opacity-70">当前估价</div>
+                <div className="text-2xl font-bold">¥{estimate}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs opacity-70">{brandName}</div>
+                <div className="text-sm font-medium">{modelName}</div>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
+      {/* 主内容 */}
       <div
         className="max-w-md mx-auto px-4 py-6"
         onTouchStart={handleTouchStart}
@@ -1849,12 +1916,14 @@ function RecyclePage() {
           </div>
         ) : (
           <div className="animate-fadeIn space-y-4">
+            {/* 最终估价卡片 */}
             <div className="bg-gradient-to-br from-black to-neutral-900 text-white rounded-3xl p-8 text-center">
               <div className="text-sm opacity-70 mb-2">最高回收价</div>
               <div className="text-6xl font-bold">¥{estimate}</div>
               <div className="text-sm opacity-70 mt-3">最终价格以人工检测为准</div>
             </div>
 
+            {/* 回收信息汇总 */}
             <div className="bg-white rounded-3xl p-6 shadow-sm">
               <h3 className="font-semibold mb-4">回收信息</h3>
               <div className="space-y-3 text-sm">
@@ -1883,6 +1952,7 @@ function RecyclePage() {
               </div>
             </div>
 
+            {/* 操作按钮 */}
             <button
               onClick={() => {
                 setShowEstimate(false);
@@ -1894,7 +1964,7 @@ function RecyclePage() {
             </button>
 
             <button
-              onClick={() => setShowEstimate(false)}
+              onClick={handleReestimate}
               className="w-full bg-white text-black border-2 border-black rounded-2xl py-4 font-medium"
             >
               重新估价
@@ -1903,6 +1973,7 @@ function RecyclePage() {
         )}
       </div>
 
+      {/* 客服按钮 */}
       <button className="fixed bottom-6 right-4 bg-black text-white p-3 rounded-full shadow-lg hover:scale-105 transition-all z-50">
         <MessageCircle size={24} />
       </button>

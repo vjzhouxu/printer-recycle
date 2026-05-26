@@ -5,12 +5,10 @@ const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-const ADMIN_KEY = 'admin123456'
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   res.setHeader('Content-Type', 'application/json')
   
   if (req.method === 'OPTIONS') {
@@ -26,34 +24,24 @@ export default async function handler(req, res) {
       
       if (error) throw error
       
-      const conditions = data.filter(c => c.type === 'condition')
-      const usages = data.filter(c => c.type === 'usage')
-      const faults = data.filter(c => c.type === 'fault')
+      console.log('返回系数数据:', data)
       
-      res.status(200).json({ 
-        success: true, 
-        data: { conditions, usages, faults }
-      })
+      res.status(200).json({ success: true, data: data || [] })
     } catch (error) {
       console.error('获取系数失败:', error)
       res.status(500).json({ error: error.message })
     }
   }
   
-  // PUT - 更新系数（需要管理员权限）
+  // PUT - 更新系数
   else if (req.method === 'PUT') {
-    const authHeader = req.headers.authorization
-    if (authHeader !== `Bearer ${ADMIN_KEY}`) {
-      return res.status(401).json({ error: '未授权' })
-    }
-    
     try {
-      const { type, label, factor } = req.body
+      const { category, label, factor } = req.body
       
       const { data, error } = await supabase
         .from('coefficient_config')
-        .update({ factor })
-        .eq('type', type)
+        .update({ factor, updated_at: new Date().toISOString() })
+        .eq('category', category)
         .eq('label', label)
         .select()
       
