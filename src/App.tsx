@@ -138,7 +138,7 @@ const FAULT_OPTIONS = [
 
 type Step = "brand" | "model" | "condition" | "usage" | "fault" | "accessories" | "contact";
 
-export default function Home() {
+export default function App() {
   const [currentStep, setCurrentStep] = useState<Step>("brand");
   const [brandName, setBrandName] = useState("拓竹");
   const [modelName, setModelName] = useState("X1 Carbon");
@@ -234,42 +234,50 @@ export default function Home() {
   };
 
   const submitOrder = async () => {
+    // 验证手机号
     if (!phoneNumber || !/^1[3-9]\d{9}$/.test(phoneNumber)) {
       alert("请填写正确的手机号码");
       return;
     }
-    if (!uploadedImage) {
-      alert("请上传设备图片");
-      return;
-    }
 
     setIsSubmitting(true);
+
     try {
-      const formData = new FormData();
-      formData.append("brand", brandName);
-      formData.append("model", modelName);
-      formData.append("phone", phoneNumber);
-      formData.append("image", uploadedImage);
-      formData.append("condition", condition);
-      formData.append("usage", usage);
-      formData.append("fault", fault);
-      formData.append("accessories", JSON.stringify(selectedAccessories));
-      formData.append("estimate", estimate.toString());
+      const response = await fetch('/api/order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          brand: brandName,
+          model: modelName,
+          phone: phoneNumber,
+          condition: condition,
+          usage: usage,
+          fault: fault,
+          accessories: JSON.stringify(selectedAccessories),
+          estimate: estimate.toString(),
+        }),
+      });
 
-      const res = await fetch("/api/order", { method: "POST", body: formData });
-      const data = await res.json();
-
-      if (res.ok) {
-        alert("提交成功！订单号：" + (data?.data?.[0]?.order_no || "已生成"));
+      const data = await response.json();
+      
+      if (data.success) {
+        alert('提交成功！订单号：' + data.data.orderNo);
+        // 重置表单
         setPhoneNumber("");
         setUploadedImage(null);
-        if (fileInputRef.current) fileInputRef.current.value = "";
+        setShowEstimate(false);
+        setCurrentStep("brand");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
       } else {
-        alert("提交失败：" + (data?.message || "请稍后重试"));
+        alert('提交失败：' + (data.error || '请稍后重试'));
       }
     } catch (error) {
-      console.error("Submit error:", error);
-      alert("提交失败，请检查网络连接");
+      console.error('Submit error:', error);
+      alert('提交失败，请检查网络连接');
     } finally {
       setIsSubmitting(false);
     }
@@ -484,7 +492,7 @@ export default function Home() {
             </div>
 
             <div className="bg-white rounded-2xl p-6 shadow-sm">
-              <label className="block text-sm font-medium mb-3">上传设备图片</label>
+              <label className="block text-sm font-medium mb-3">上传设备图片（可选）</label>
               <label className="border-2 border-dashed border-neutral-300 rounded-2xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:border-black transition">
                 <Upload size={40} className="text-neutral-400" />
                 <div className="mt-3 font-medium">{uploadedImage ? uploadedImage.name : "点击上传打印机图片"}</div>
@@ -518,33 +526,35 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100">
+    <main className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 pb-20">
       {/* 顶部进度条 */}
-      <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-neutral-200">
-        <div className="max-w-md mx-auto px-4 py-3">
-          <div className="flex items-center justify-between mb-3">
-            <button
-              onClick={prevStep}
-              className={`p-2 rounded-full transition ${currentIndex === 0 ? "opacity-0 pointer-events-none" : "hover:bg-neutral-100"}`}
-            >
-              <ChevronLeft size={24} />
-            </button>
-            <div className="text-center">
-              <div className="text-sm font-medium">{steps[currentIndex].title}</div>
-              <div className="text-xs text-neutral-500 mt-0.5">
-                第 {currentIndex + 1} / {steps.length} 步
+      {!showEstimate && (
+        <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-neutral-200">
+          <div className="max-w-md mx-auto px-4 py-3">
+            <div className="flex items-center justify-between mb-3">
+              <button
+                onClick={prevStep}
+                className={`p-2 rounded-full transition ${currentIndex === 0 ? "opacity-0 pointer-events-none" : "hover:bg-neutral-100"}`}
+              >
+                <ChevronLeft size={24} />
+              </button>
+              <div className="text-center">
+                <div className="text-sm font-medium">{steps[currentIndex].title}</div>
+                <div className="text-xs text-neutral-500 mt-0.5">
+                  第 {currentIndex + 1} / {steps.length} 步
+                </div>
               </div>
+              <div className="w-10" />
             </div>
-            <div className="w-10" />
-          </div>
-          <div className="h-1.5 bg-neutral-200 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-black transition-all duration-300 rounded-full"
-              style={{ width: `${progress}%` }}
-            />
+            <div className="h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-black transition-all duration-300 rounded-full"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 估价卡片（固定在顶部） */}
       {!showEstimate && currentStep !== "contact" && (
@@ -572,22 +582,12 @@ export default function Home() {
           <>
             {/* 当前步骤卡片 */}
             <div className="animate-fadeIn">
-              <div className="mb-2">
+              <div className="mb-4">
                 <h2 className="text-2xl font-bold">{steps[currentIndex].title}</h2>
                 <p className="text-neutral-500 text-sm mt-1">请选择以下选项</p>
               </div>
               {renderStep()}
             </div>
-
-            {/* 跳过/下一步按钮 */}
-            {currentStep !== "accessories" && currentStep !== "contact" && (
-              <button
-                onClick={nextStep}
-                className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-black text-white px-8 py-3 rounded-full shadow-lg font-semibold flex items-center gap-2 hover:scale-105 transition-all z-50"
-              >
-                下一步 <ArrowRight size={18} />
-              </button>
-            )}
           </>
         ) : (
           /* 最终估价页面 */
@@ -647,11 +647,11 @@ export default function Home() {
       </div>
 
       {/* 客服悬浮按钮 */}
-      <button className="fixed bottom-24 right-4 bg-black text-white p-3 rounded-full shadow-lg hover:scale-105 transition-all z-50">
+      <button className="fixed bottom-6 right-4 bg-black text-white p-3 rounded-full shadow-lg hover:scale-105 transition-all z-50">
         <MessageCircle size={24} />
       </button>
 
-      <style jsx>{`
+      <style>{`
         @keyframes fadeIn {
           from {
             opacity: 0;
