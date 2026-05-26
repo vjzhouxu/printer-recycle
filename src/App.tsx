@@ -21,6 +21,11 @@ import {
   Trash2,
   Plus,
   Save,
+  ArrowLeft,
+  DollarSign,
+  Users,
+  Key,
+  Settings,
 } from "lucide-react";
 
 // ============================================
@@ -41,6 +46,14 @@ type PrinterModel = {
 type Brand = {
   name: string;
   models: PrinterModel[];
+};
+
+type User = {
+  id: string;
+  username: string;
+  password: string;
+  role: string;
+  createdAt: string;
 };
 
 // 初始数据
@@ -146,6 +159,17 @@ const FAULT_OPTIONS = [
   { label: "无法开机", factor: 0.55, desc: "无法正常使用" },
 ];
 
+// 初始用户数据
+const INITIAL_USERS: User[] = [
+  {
+    id: "1",
+    username: "admin",
+    password: "admin123456",
+    role: "super_admin",
+    createdAt: new Date().toISOString(),
+  },
+];
+
 type Step = "brand" | "model" | "condition" | "usage" | "fault" | "accessories" | "contact";
 
 // ============================================
@@ -181,6 +205,10 @@ function OrderQueryPage() {
     }
   }
 
+  const goBack = () => {
+    window.location.href = '/'
+  }
+
   const getStatusText = (status: string) => {
     switch (status) {
       case 'PENDING': return '待审核'
@@ -205,8 +233,18 @@ function OrderQueryPage() {
     <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100">
       <div className="bg-white border-b">
         <div className="max-w-md mx-auto px-4 py-4">
-          <h1 className="text-xl font-bold">订单查询</h1>
-          <p className="text-sm text-neutral-500 mt-1">输入手机号查询您的回收订单</p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={goBack}
+              className="p-2 hover:bg-neutral-100 rounded-full transition"
+            >
+              <ArrowLeft size={24} />
+            </button>
+            <div>
+              <h1 className="text-xl font-bold">订单查询</h1>
+              <p className="text-sm text-neutral-500 mt-1">输入手机号查询您的回收订单</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -218,6 +256,7 @@ function OrderQueryPage() {
               placeholder="请输入手机号码"
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && searchOrders()}
               className="flex-1 rounded-xl border border-neutral-200 px-4 py-3 text-base focus:outline-none focus:border-black"
             />
             <button
@@ -260,6 +299,12 @@ function OrderQueryPage() {
                       <span className="text-gray-500">提交时间</span>
                       <span className="text-sm">{new Date(order.createdAt).toLocaleString()}</span>
                     </div>
+                    {order.finalPrice && order.finalPrice !== order.estimatePrice && order.status !== 'PENDING' && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">最终报价</span>
+                        <span className="font-bold text-green-600">¥{order.finalPrice}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
@@ -275,14 +320,35 @@ function OrderQueryPage() {
 // 后台管理页面组件（增强版）
 // ============================================
 function AdminPage() {
-  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'coefficients'>('orders')
+  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'coefficients' | 'users'>('orders')
   const [orders, setOrders] = useState<any[]>([])
   const [brands, setBrands] = useState<Brand[]>(INITIAL_BRANDS)
+  const [users, setUsers] = useState<User[]>(INITIAL_USERS)
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState('all')
   const [password, setPassword] = useState('')
   const [isAuthed, setIsAuthed] = useState(false)
+  const [currentUser, setCurrentUser] = useState<string>('')
   
+  // 编辑报价
+  const [editingPriceOrder, setEditingPriceOrder] = useState<any>(null)
+  const [newPrice, setNewPrice] = useState<number>(0)
+  
+  // 编辑附件价格
+  const [editingAccessory, setEditingAccessory] = useState<{ brand: string; model: string; accessory: Accessory } | null>(null)
+  const [newAccessoryValue, setNewAccessoryValue] = useState<number>(0)
+  
+  // 修改密码
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [oldPassword, setOldPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  
+  // 添加用户
+  const [showAddUser, setShowAddUser] = useState(false)
+  const [newUsername, setNewUsername] = useState('')
+  const [newUserPassword, setNewUserPassword] = useState('')
+
   // 编辑状态
   const [editingBrand, setEditingBrand] = useState<string | null>(null)
   const [editingModel, setEditingModel] = useState<{ brand: string; model: string } | null>(null)
@@ -297,8 +363,10 @@ function AdminPage() {
   const ADMIN_KEY = 'admin123456'
 
   const handleLogin = () => {
-    if (password === ADMIN_KEY) {
+    const user = users.find(u => u.username === password || (u.password === password))
+    if (user) {
       setIsAuthed(true)
+      setCurrentUser(user.username)
       fetchOrders()
     } else {
       alert('密码错误')
@@ -337,6 +405,84 @@ function AdminPage() {
       }
     } catch (error) {
       alert('更新失败')
+    }
+  }
+
+  const updateOrderPrice = async (id: string, finalPrice: number) => {
+    try {
+      const res = await fetch('/api/admin-orders', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${ADMIN_KEY}`
+        },
+        body: JSON.stringify({ id, finalPrice })
+      })
+      if (res.ok) {
+        fetchOrders()
+        setEditingPriceOrder(null)
+        alert('报价修改成功')
+      }
+    } catch (error) {
+      alert('修改失败')
+    }
+  }
+
+  const changePassword = () => {
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      alert('请填写完整信息')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      alert('两次输入的新密码不一致')
+      return
+    }
+    
+    const userIndex = users.findIndex(u => u.username === currentUser)
+    if (userIndex !== -1 && users[userIndex].password === oldPassword) {
+      const updatedUsers = [...users]
+      updatedUsers[userIndex].password = newPassword
+      setUsers(updatedUsers)
+      alert('密码修改成功，请重新登录')
+      setIsAuthed(false)
+      setShowChangePassword(false)
+    } else {
+      alert('原密码错误')
+    }
+  }
+
+  const addUser = () => {
+    if (!newUsername || !newUserPassword) {
+      alert('请填写完整信息')
+      return
+    }
+    if (users.find(u => u.username === newUsername)) {
+      alert('用户名已存在')
+      return
+    }
+    
+    const newUser: User = {
+      id: Date.now().toString(),
+      username: newUsername,
+      password: newUserPassword,
+      role: 'admin',
+      createdAt: new Date().toISOString(),
+    }
+    setUsers([...users, newUser])
+    setShowAddUser(false)
+    setNewUsername('')
+    setNewUserPassword('')
+    alert('用户添加成功')
+  }
+
+  const deleteUser = (userId: string, username: string) => {
+    if (username === currentUser) {
+      alert('不能删除自己的账号')
+      return
+    }
+    if (confirm(`确定要删除用户 "${username}" 吗？`)) {
+      setUsers(users.filter(u => u.id !== userId))
+      alert('删除成功')
     }
   }
 
@@ -380,6 +526,81 @@ function AdminPage() {
       setBrands(brands.map(b => {
         if (b.name === brandName) {
           return { ...b, models: b.models.filter(m => m.name !== modelName) }
+        }
+        return b
+      }))
+    }
+  }
+
+  // 更新附件价格
+  const updateAccessoryValue = (brandName: string, modelName: string, accessoryName: string, newValue: number) => {
+    setBrands(brands.map(b => {
+      if (b.name === brandName) {
+        return {
+          ...b,
+          models: b.models.map(m => {
+            if (m.name === modelName && m.accessories) {
+              return {
+                ...m,
+                accessories: m.accessories.map(a => 
+                  a.name === accessoryName ? { ...a, value: newValue } : a
+                )
+              }
+            }
+            return m
+          })
+        }
+      }
+      return b
+    }))
+    setEditingAccessory(null)
+    alert('附件价格已更新')
+  }
+
+  // 添加附件
+  const addAccessory = (brandName: string, modelName: string) => {
+    const newAccessoryName = prompt('请输入附件名称')
+    if (!newAccessoryName) return
+    const newAccessoryValue = parseInt(prompt('请输入附件价值(元)') || '0')
+    if (isNaN(newAccessoryValue)) return
+    
+    setBrands(brands.map(b => {
+      if (b.name === brandName) {
+        return {
+          ...b,
+          models: b.models.map(m => {
+            if (m.name === modelName) {
+              return {
+                ...m,
+                accessories: [...(m.accessories || []), { name: newAccessoryName, value: newAccessoryValue }]
+              }
+            }
+            return m
+          })
+        }
+      }
+      return b
+    }))
+    alert('附件已添加')
+  }
+
+  // 删除附件
+  const deleteAccessory = (brandName: string, modelName: string, accessoryName: string) => {
+    if (confirm(`确定要删除附件 "${accessoryName}" 吗？`)) {
+      setBrands(brands.map(b => {
+        if (b.name === brandName) {
+          return {
+            ...b,
+            models: b.models.map(m => {
+              if (m.name === modelName && m.accessories) {
+                return {
+                  ...m,
+                  accessories: m.accessories.filter(a => a.name !== accessoryName)
+                }
+              }
+              return m
+            })
+          }
         }
         return b
       }))
@@ -434,7 +655,7 @@ function AdminPage() {
           <h1 className="text-2xl font-bold mb-6">后台登录</h1>
           <input
             type="password"
-            placeholder="请输入管理密码"
+            placeholder="请输入密码"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
@@ -458,21 +679,29 @@ function AdminPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">3D打印机回收后台</h1>
-              <p className="text-gray-500 mt-1">管理订单、产品和估价系数</p>
+              <p className="text-gray-500 mt-1">欢迎，{currentUser}</p>
             </div>
-            <button
-              onClick={() => setIsAuthed(false)}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-black"
-            >
-              退出登录
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowChangePassword(true)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-black flex items-center gap-1"
+              >
+                <Key size={16} /> 修改密码
+              </button>
+              <button
+                onClick={() => setIsAuthed(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-black"
+              >
+                退出登录
+              </button>
+            </div>
           </div>
           
           {/* Tab 切换 */}
-          <div className="flex gap-4 mt-6 border-b">
+          <div className="flex gap-4 mt-6 border-b overflow-x-auto">
             <button
               onClick={() => setActiveTab('orders')}
-              className={`pb-3 px-2 text-sm font-medium transition ${
+              className={`pb-3 px-2 text-sm font-medium transition whitespace-nowrap ${
                 activeTab === 'orders' ? 'text-black border-b-2 border-black' : 'text-gray-500'
               }`}
             >
@@ -480,7 +709,7 @@ function AdminPage() {
             </button>
             <button
               onClick={() => setActiveTab('products')}
-              className={`pb-3 px-2 text-sm font-medium transition ${
+              className={`pb-3 px-2 text-sm font-medium transition whitespace-nowrap ${
                 activeTab === 'products' ? 'text-black border-b-2 border-black' : 'text-gray-500'
               }`}
             >
@@ -488,11 +717,19 @@ function AdminPage() {
             </button>
             <button
               onClick={() => setActiveTab('coefficients')}
-              className={`pb-3 px-2 text-sm font-medium transition ${
+              className={`pb-3 px-2 text-sm font-medium transition whitespace-nowrap ${
                 activeTab === 'coefficients' ? 'text-black border-b-2 border-black' : 'text-gray-500'
               }`}
             >
               系数设置
+            </button>
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`pb-3 px-2 text-sm font-medium transition whitespace-nowrap ${
+                activeTab === 'users' ? 'text-black border-b-2 border-black' : 'text-gray-500'
+              }`}
+            >
+              用户管理
             </button>
           </div>
         </div>
@@ -564,15 +801,41 @@ function AdminPage() {
                         </div>
                         <div className="mt-2">
                           <div className="font-semibold text-lg">{order.brand} {order.model}</div>
-                          <div className="text-sm text-gray-500 mt-1">估价: ¥{order.estimatePrice}</div>
+                          <div className="text-sm text-gray-500 mt-1">
+                            估价: ¥{order.estimatePrice}
+                            {order.finalPrice && order.finalPrice !== order.estimatePrice && (
+                              <span className="ml-2 text-green-600">→ 最终: ¥{order.finalPrice}</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
+
+                    {/* 订单详情 */}
+                    <div className="grid grid-cols-2 gap-3 mb-4 text-sm bg-gray-50 p-3 rounded-xl">
+                      <div><span className="text-gray-500">成色:</span> {order.condition}</div>
+                      <div><span className="text-gray-500">使用时间:</span> {order.usage}</div>
+                      <div><span className="text-gray-500">故障:</span> {order.fault}</div>
+                      <div><span className="text-gray-500">联系方式:</span> {order.phone}</div>
+                    </div>
+
                     <div className="flex items-center justify-between text-sm">
                       <div className="text-gray-500">
                         {new Date(order.createdAt).toLocaleString()}
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
+                        {/* 修改报价按钮 - 待审核和处理中状态都可以修改 */}
+                        {(order.status === 'PENDING' || order.status === 'PROCESSING') && (
+                          <button
+                            onClick={() => {
+                              setEditingPriceOrder(order)
+                              setNewPrice(order.finalPrice || order.estimatePrice)
+                            }}
+                            className="px-3 py-1 bg-purple-500 text-white rounded-lg text-sm flex items-center gap-1"
+                          >
+                            <DollarSign size={14} /> 修改报价
+                          </button>
+                        )}
                         {order.status === 'PENDING' && (
                           <>
                             <button
@@ -594,7 +857,7 @@ function AdminPage() {
                             onClick={() => updateOrderStatus(order.id, 'COMPLETED')}
                             className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm"
                           >
-                            完成
+                            完成回收
                           </button>
                         )}
                       </div>
@@ -609,7 +872,6 @@ function AdminPage() {
         {/* 产品管理 */}
         {activeTab === 'products' && (
           <div className="space-y-6">
-            {/* 添加品牌 */}
             <div className="bg-white rounded-2xl p-6">
               <h3 className="font-semibold mb-4">添加新品牌</h3>
               <div className="flex gap-3">
@@ -629,7 +891,6 @@ function AdminPage() {
               </div>
             </div>
 
-            {/* 品牌列表 */}
             {brands.map((brand) => (
               <div key={brand.name} className="bg-white rounded-2xl p-6">
                 <div className="flex items-center justify-between mb-4">
@@ -642,9 +903,8 @@ function AdminPage() {
                   </button>
                 </div>
 
-                {/* 添加型号 */}
                 <div className="mb-4 p-4 bg-gray-50 rounded-xl">
-                  <div className="flex gap-2 mb-2">
+                  <div className="flex gap-2 mb-2 flex-wrap">
                     <input
                       type="text"
                       placeholder="型号名称"
@@ -670,24 +930,90 @@ function AdminPage() {
                       onClick={() => addModel(brand.name)}
                       className="bg-black text-white px-3 py-2 rounded-lg text-sm"
                     >
-                      添加
+                      添加型号
                     </button>
                   </div>
                 </div>
 
-                {/* 型号列表 */}
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {brand.models.map((model) => (
-                    <div key={model.name} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                      <div>
-                        <div className="font-medium">{model.name}</div>
-                        <div className="text-sm text-gray-500">{model.releaseYear}年 · ¥{model.originalPrice}</div>
+                    <div key={model.name} className="border rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <div className="font-medium">{model.name}</div>
+                          <div className="text-sm text-gray-500">{model.releaseYear}年 · 原价 ¥{model.originalPrice}</div>
+                        </div>
+                        <button
+                          onClick={() => deleteModel(brand.name, model.name)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
+                      
+                      {/* 附件管理 */}
+                      {model.accessories && model.accessories.length > 0 && (
+                        <div className="mt-3 pt-3 border-t">
+                          <div className="text-sm font-medium mb-2">附件列表：</div>
+                          <div className="space-y-2">
+                            {model.accessories.map((acc) => (
+                              <div key={acc.name} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg">
+                                <span className="text-sm">{acc.name}</span>
+                                <div className="flex items-center gap-2">
+                                  {editingAccessory?.accessory.name === acc.name && 
+                                   editingAccessory?.brand === brand.name && 
+                                   editingAccessory?.model === model.name ? (
+                                    <div className="flex gap-1">
+                                      <input
+                                        type="number"
+                                        value={newAccessoryValue}
+                                        onChange={(e) => setNewAccessoryValue(parseInt(e.target.value))}
+                                        className="w-24 border rounded px-2 py-1 text-sm"
+                                      />
+                                      <button
+                                        onClick={() => updateAccessoryValue(brand.name, model.name, acc.name, newAccessoryValue)}
+                                        className="text-green-600"
+                                      >
+                                        <Save size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingAccessory(null)}
+                                        className="text-gray-500"
+                                      >
+                                        <X size={14} />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <span className="text-sm text-blue-600">¥{acc.value}</span>
+                                      <button
+                                        onClick={() => {
+                                          setEditingAccessory({ brand: brand.name, model: model.name, accessory: acc })
+                                          setNewAccessoryValue(acc.value)
+                                        }}
+                                        className="text-gray-400 hover:text-gray-600"
+                                      >
+                                        <Edit size={12} />
+                                      </button>
+                                      <button
+                                        onClick={() => deleteAccessory(brand.name, model.name, acc.name)}
+                                        className="text-red-400 hover:text-red-600"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <button
-                        onClick={() => deleteModel(brand.name, model.name)}
-                        className="text-red-500 hover:text-red-700"
+                        onClick={() => addAccessory(brand.name, model.name)}
+                        className="mt-3 text-sm text-blue-500 hover:text-blue-700 flex items-center gap-1"
                       >
-                        <Trash2 size={16} />
+                        <Plus size={14} /> 添加附件
                       </button>
                     </div>
                   ))}
@@ -700,7 +1026,6 @@ function AdminPage() {
         {/* 系数设置 */}
         {activeTab === 'coefficients' && (
           <div className="space-y-6">
-            {/* 成色系数 */}
             <div className="bg-white rounded-2xl p-6">
               <h3 className="font-semibold mb-4">成色系数</h3>
               <div className="space-y-3">
@@ -743,7 +1068,6 @@ function AdminPage() {
               </div>
             </div>
 
-            {/* 使用时间系数 */}
             <div className="bg-white rounded-2xl p-6">
               <h3 className="font-semibold mb-4">使用时间系数</h3>
               <div className="space-y-3">
@@ -786,7 +1110,6 @@ function AdminPage() {
               </div>
             </div>
 
-            {/* 故障系数 */}
             <div className="bg-white rounded-2xl p-6">
               <h3 className="font-semibold mb-4">功能故障系数</h3>
               <div className="space-y-3">
@@ -830,13 +1153,190 @@ function AdminPage() {
             </div>
           </div>
         )}
+
+        {/* 用户管理 */}
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold">用户列表</h3>
+                <button
+                  onClick={() => setShowAddUser(true)}
+                  className="bg-black text-white px-4 py-2 rounded-xl flex items-center gap-2 text-sm"
+                >
+                  <Plus size={16} /> 添加用户
+                </button>
+              </div>
+              <div className="space-y-3">
+                {users.map((user) => (
+                  <div key={user.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                    <div>
+                      <div className="font-medium">{user.username}</div>
+                      <div className="text-xs text-gray-500">
+                        角色: {user.role === 'super_admin' ? '超级管理员' : '管理员'} · 
+                        创建时间: {new Date(user.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    {user.username !== currentUser && (
+                      <button
+                        onClick={() => deleteUser(user.id, user.username)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* 修改报价弹窗 */}
+      {editingPriceOrder && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold mb-4">修改报价</h3>
+            <div className="mb-4">
+              <div className="text-sm text-gray-500 mb-1">订单号</div>
+              <div className="font-mono">{editingPriceOrder.orderNo}</div>
+            </div>
+            <div className="mb-4">
+              <div className="text-sm text-gray-500 mb-1">设备</div>
+              <div>{editingPriceOrder.brand} {editingPriceOrder.model}</div>
+            </div>
+            <div className="mb-4">
+              <div className="text-sm text-gray-500 mb-1">原估价</div>
+              <div className="text-lg">¥{editingPriceOrder.estimatePrice}</div>
+            </div>
+            <div className="mb-6">
+              <div className="text-sm text-gray-500 mb-1">新报价</div>
+              <input
+                type="number"
+                value={newPrice}
+                onChange={(e) => setNewPrice(parseInt(e.target.value))}
+                className="w-full border rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-black"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => updateOrderPrice(editingPriceOrder.id, newPrice)}
+                className="flex-1 bg-black text-white py-3 rounded-xl font-semibold"
+              >
+                确认修改
+              </button>
+              <button
+                onClick={() => setEditingPriceOrder(null)}
+                className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 修改密码弹窗 */}
+      {showChangePassword && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold mb-4">修改密码</h3>
+            <div className="space-y-4">
+              <div>
+                <div className="text-sm text-gray-500 mb-1">原密码</div>
+                <input
+                  type="password"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:border-black"
+                />
+              </div>
+              <div>
+                <div className="text-sm text-gray-500 mb-1">新密码</div>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:border-black"
+                />
+              </div>
+              <div>
+                <div className="text-sm text-gray-500 mb-1">确认新密码</div>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:border-black"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={changePassword}
+                className="flex-1 bg-black text-white py-3 rounded-xl font-semibold"
+              >
+                确认修改
+              </button>
+              <button
+                onClick={() => setShowChangePassword(false)}
+                className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 添加用户弹窗 */}
+      {showAddUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold mb-4">添加用户</h3>
+            <div className="space-y-4">
+              <div>
+                <div className="text-sm text-gray-500 mb-1">用户名</div>
+                <input
+                  type="text"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:border-black"
+                />
+              </div>
+              <div>
+                <div className="text-sm text-gray-500 mb-1">密码</div>
+                <input
+                  type="password"
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:border-black"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={addUser}
+                className="flex-1 bg-black text-white py-3 rounded-xl font-semibold"
+              >
+                确认添加
+              </button>
+              <button
+                onClick={() => setShowAddUser(false)}
+                className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // ============================================
-// 用户回收页面组件（带图片预览）
+// 用户回收页面组件
 // ============================================
 function RecyclePage() {
   const [currentStep, setCurrentStep] = useState<Step>("brand");
@@ -932,7 +1432,6 @@ function RecyclePage() {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setUploadedImage(file);
-      // 生成缩略图预览
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
@@ -950,7 +1449,6 @@ function RecyclePage() {
     setIsSubmitting(true);
 
     try {
-      // 先上传图片（如果有）
       let imageUrl = '';
       if (uploadedImage) {
         const formData = new FormData();
@@ -1231,7 +1729,6 @@ function RecyclePage() {
                 />
               </label>
               
-              {/* 图片缩略图预览 */}
               {imagePreview && (
                 <div className="mt-4">
                   <div className="text-sm text-gray-500 mb-2">图片预览：</div>
@@ -1272,7 +1769,6 @@ function RecyclePage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 pb-20">
-      {/* 顶部导航 - 添加订单查询入口 */}
       <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-neutral-200">
         <div className="max-w-md mx-auto px-4 py-3">
           <div className="flex items-center justify-between">

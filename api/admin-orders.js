@@ -41,14 +41,20 @@ export default async function handler(req, res) {
     }
   }
   
-  // PUT - 更新订单状态
+  // PUT - 更新订单状态或报价
   else if (req.method === 'PUT') {
     try {
-      const { id, status, remark } = req.body
+      const { id, status, remark, finalPrice } = req.body
+      
+      const updateData = {}
+      if (status !== undefined) updateData.status = status
+      if (remark !== undefined) updateData.remark = remark
+      if (finalPrice !== undefined) updateData.finalPrice = finalPrice
+      updateData.updatedAt = new Date().toISOString()
       
       const { data: order, error } = await supabase
         .from('orders')
-        .update({ status, remark, updatedAt: new Date().toISOString() })
+        .update(updateData)
         .eq('id', id)
         .select()
         .single()
