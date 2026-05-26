@@ -5,12 +5,10 @@ const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-const ADMIN_KEY = 'admin123456'
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   res.setHeader('Content-Type', 'application/json')
   
   if (req.method === 'OPTIONS') {
@@ -20,23 +18,26 @@ export default async function handler(req, res) {
   // GET - 获取所有产品配置
   if (req.method === 'GET') {
     try {
-      const { data: products, error } = await supabase
+      const { data, error } = await supabase
         .from('product_config')
         .select('*')
         .order('brand', { ascending: true })
       
-      if (error) throw error
+      if (error) {
+        console.error('查询产品失败:', error)
+        return res.status(500).json({ error: error.message })
+      }
       
       // 转换为前端需要的格式
-      const brands = {}
-      products.forEach(product => {
-        if (!brands[product.brand]) {
-          brands[product.brand] = {
+      const brandsMap = new Map()
+      data.forEach(product => {
+        if (!brandsMap.has(product.brand)) {
+          brandsMap.set(product.brand, {
             name: product.brand,
             models: []
-          }
+          })
         }
-        brands[product.brand].models.push({
+        brandsMap.get(product.brand).models.push({
           name: product.model,
           releaseYear: product.release_year,
           originalPrice: product.original_price,
@@ -44,22 +45,19 @@ export default async function handler(req, res) {
         })
       })
       
-      res.status(200).json({ success: true, data: Object.values(brands) })
+      res.status(200).json({ success: true, data: Array.from(brandsMap.values()) })
     } catch (error) {
-      console.error('获取配置失败:', error)
+      console.error('获取产品失败:', error)
       res.status(500).json({ error: error.message })
     }
   }
   
-  // POST - 更新附件价格（需要管理员权限）
-  else if (req.method === 'POST') {
-    const authHeader = req.headers.authorization
-    if (authHeader !== `Bearer ${ADMIN_KEY}`) {
-      return res.status(401).json({ error: '未授权' })
-    }
-    
+  // PUT - 更新产品配置（附件价格）
+  else if (req.method === 'PUT') {
     try {
       const { brand, model, accessories } = req.body
+      
+      console.log('更新附件:', { brand, model, accessories })
       
       const { data, error } = await supabase
         .from('product_config')
@@ -68,67 +66,15 @@ export default async function handler(req, res) {
         .eq('model', model)
         .select()
       
-      if (error) throw error
+      if (error) {
+        console.error('更新产品失败:', error)
+        return res.status(500).json({ error: error.message })
+      }
       
+      console.log('更新成功:', data)
       res.status(200).json({ success: true, data })
     } catch (error) {
-      console.error('更新失败:', error)
-      res.status(500).json({ error: error.message })
-    }
-  }
-  
-  // PUT - 添加或更新产品
-  else if (req.method === 'PUT') {
-    const authHeader = req.headers.authorization
-    if (authHeader !== `Bearer ${ADMIN_KEY}`) {
-      return res.status(401).json({ error: '未授权' })
-    }
-    
-    try {
-      const { brand, model, releaseYear, originalPrice, accessories } = req.body
-      
-      const { data, error } = await supabase
-        .from('product_config')
-        .upsert({
-          brand,
-          model,
-          release_year: releaseYear,
-          original_price: originalPrice,
-          accessories: accessories || [],
-          updated_at: new Date().toISOString()
-        })
-        .select()
-      
-      if (error) throw error
-      
-      res.status(200).json({ success: true, data })
-    } catch (error) {
-      console.error('保存失败:', error)
-      res.status(500).json({ error: error.message })
-    }
-  }
-  
-  // DELETE - 删除产品
-  else if (req.method === 'DELETE') {
-    const authHeader = req.headers.authorization
-    if (authHeader !== `Bearer ${ADMIN_KEY}`) {
-      return res.status(401).json({ error: '未授权' })
-    }
-    
-    try {
-      const { brand, model } = req.query
-      
-      const { error } = await supabase
-        .from('product_config')
-        .delete()
-        .eq('brand', brand)
-        .eq('model', model)
-      
-      if (error) throw error
-      
-      res.status(200).json({ success: true })
-    } catch (error) {
-      console.error('删除失败:', error)
+      console.error('更新产品失败:', error)
       res.status(500).json({ error: error.message })
     }
   }
