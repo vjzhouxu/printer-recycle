@@ -23,9 +23,7 @@ import {
   Save,
   ArrowLeft,
   DollarSign,
-  Users,
   Key,
-  Settings,
 } from "lucide-react";
 
 // ============================================
@@ -48,6 +46,14 @@ type Brand = {
   models: PrinterModel[];
 };
 
+type Coefficient = {
+  id: string;
+  category: string;
+  label: string;
+  factor: number;
+  description: string;
+};
+
 type User = {
   id: string;
   username: string;
@@ -55,109 +61,6 @@ type User = {
   role: string;
   createdAt: string;
 };
-
-// 初始数据
-const INITIAL_BRANDS: Brand[] = [
-  {
-    name: "拓竹",
-    models: [
-      {
-        name: "H2D",
-        releaseYear: 2025,
-        originalPrice: 2199,
-        accessories: [{ name: "AMS Pro", value: 350 }],
-      },
-      {
-        name: "X1E",
-        releaseYear: 2024,
-        originalPrice: 1799,
-        accessories: [{ name: "AMS", value: 180 }],
-      },
-      {
-        name: "X1 Carbon",
-        releaseYear: 2022,
-        originalPrice: 1199,
-        accessories: [
-          { name: "AMS", value: 180 },
-          { name: "AMS 2", value: 240 },
-        ],
-      },
-      {
-        name: "P2S",
-        releaseYear: 2025,
-        originalPrice: 1499,
-        accessories: [{ name: "AMS 2", value: 240 }],
-      },
-      {
-        name: "P1S",
-        releaseYear: 2023,
-        originalPrice: 699,
-        accessories: [{ name: "AMS", value: 180 }],
-      },
-      {
-        name: "P1P",
-        releaseYear: 2022,
-        originalPrice: 599,
-        accessories: [{ name: "AMS", value: 180 }],
-      },
-      {
-        name: "A1",
-        releaseYear: 2024,
-        originalPrice: 399,
-        accessories: [{ name: "AMS Lite", value: 120 }],
-      },
-      {
-        name: "A1 Mini",
-        releaseYear: 2024,
-        originalPrice: 299,
-        accessories: [{ name: "AMS Lite", value: 120 }],
-      },
-    ],
-  },
-  {
-    name: "创想三维",
-    models: [
-      { name: "K2 Plus", releaseYear: 2025, originalPrice: 1499 },
-      { name: "K1C", releaseYear: 2024, originalPrice: 699 },
-      { name: "K1 Max", releaseYear: 2023, originalPrice: 899 },
-      { name: "K1", releaseYear: 2023, originalPrice: 599 },
-      { name: "Ender-3 V3", releaseYear: 2024, originalPrice: 399 },
-      { name: "Ender-3 V3 Plus", releaseYear: 2024, originalPrice: 499 },
-    ],
-  },
-  {
-    name: "闪铸",
-    models: [
-      { name: "Adventurer 5M", releaseYear: 2024, originalPrice: 499 },
-      { name: "Adventurer 5M Pro", releaseYear: 2024, originalPrice: 699 },
-      { name: "Creator Pro 2", releaseYear: 2022, originalPrice: 649 },
-      { name: "Guider 3", releaseYear: 2023, originalPrice: 1299 },
-    ],
-  },
-];
-
-const CONDITIONS = [
-  { label: "99新", factor: 1.1, desc: "几乎全新，无使用痕迹" },
-  { label: "95新", factor: 1, desc: "轻微使用痕迹" },
-  { label: "9成新", factor: 0.9, desc: "正常使用痕迹" },
-  { label: "8成新", factor: 0.8, desc: "明显使用痕迹" },
-  { label: "7成新", factor: 0.7, desc: "较多使用痕迹" },
-];
-
-const USAGE_OPTIONS = [
-  { label: "100小时内", factor: 1, desc: "轻度使用" },
-  { label: "100-300小时", factor: 0.95, desc: "中度使用" },
-  { label: "301-600小时", factor: 0.88, desc: "重度使用" },
-  { label: "601小时以上", factor: 0.78, desc: "高强度使用" },
-];
-
-const FAULT_OPTIONS = [
-  { label: "无故障", factor: 1, desc: "所有功能正常" },
-  { label: "喷头异常", factor: 0.88, desc: "喷头需要维修" },
-  { label: "热床异常", factor: 0.82, desc: "热床需要维修" },
-  { label: "主板异常", factor: 0.7, desc: "主板需要维修" },
-  { label: "无法开机", factor: 0.55, desc: "无法正常使用" },
-];
 
 // 初始用户数据
 const INITIAL_USERS: User[] = [
@@ -317,13 +220,14 @@ function OrderQueryPage() {
 }
 
 // ============================================
-// 后台管理页面组件（增强版）
+// 后台管理页面组件
 // ============================================
 function AdminPage() {
   const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'coefficients' | 'users'>('orders')
   const [orders, setOrders] = useState<any[]>([])
-  const [brands, setBrands] = useState<Brand[]>(INITIAL_BRANDS)
+  const [brands, setBrands] = useState<Brand[]>([])
   const [users, setUsers] = useState<User[]>(INITIAL_USERS)
+  const [coefficients, setCoefficients] = useState<Coefficient[]>([])
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState('all')
   const [password, setPassword] = useState('')
@@ -349,25 +253,85 @@ function AdminPage() {
   const [newUsername, setNewUsername] = useState('')
   const [newUserPassword, setNewUserPassword] = useState('')
 
-  // 编辑状态
-  const [editingBrand, setEditingBrand] = useState<string | null>(null)
-  const [editingModel, setEditingModel] = useState<{ brand: string; model: string } | null>(null)
+  // 添加品牌/型号
   const [newBrandName, setNewBrandName] = useState('')
   const [newModel, setNewModel] = useState<Partial<PrinterModel>>({})
   
   // 系数编辑
-  const [editingCondition, setEditingCondition] = useState<string | null>(null)
-  const [editingUsage, setEditingUsage] = useState<string | null>(null)
-  const [editingFault, setEditingFault] = useState<string | null>(null)
+  const [editingCoefficient, setEditingCoefficient] = useState<Coefficient | null>(null)
 
   const ADMIN_KEY = 'admin123456'
 
+  // 加载产品配置
+  const loadProductConfig = async () => {
+    try {
+      const res = await fetch('/api/product-config')
+      const data = await res.json()
+      if (data.success) {
+        setBrands(data.data)
+      }
+    } catch (error) {
+      console.error('加载产品配置失败:', error)
+    }
+  }
+
+  // 加载系数配置
+  const loadCoefficients = async () => {
+    try {
+      const res = await fetch('/api/coefficient-config')
+      const data = await res.json()
+      if (data.success) {
+        setCoefficients(data.data)
+      }
+    } catch (error) {
+      console.error('加载系数失败:', error)
+    }
+  }
+
+  // 更新附件价格到数据库
+  const updateAccessoryInDB = async (brand: string, model: string, accessories: any[]) => {
+    try {
+      const res = await fetch('/api/product-config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ brand, model, accessories })
+      })
+      const data = await res.json()
+      return data.success
+    } catch (error) {
+      console.error('更新附件失败:', error)
+      return false
+    }
+  }
+
+  // 更新系数到数据库
+  const updateCoefficientInDB = async (category: string, label: string, factor: number) => {
+    try {
+      const res = await fetch('/api/coefficient-config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ category, label, factor })
+      })
+      const data = await res.json()
+      return data.success
+    } catch (error) {
+      console.error('更新系数失败:', error)
+      return false
+    }
+  }
+
   const handleLogin = () => {
-    const user = users.find(u => u.username === password || (u.password === password))
+    const user = users.find(u => u.password === password)
     if (user) {
       setIsAuthed(true)
       setCurrentUser(user.username)
       fetchOrders()
+      loadProductConfig()
+      loadCoefficients()
     } else {
       alert('密码错误')
     }
@@ -533,8 +497,8 @@ function AdminPage() {
   }
 
   // 更新附件价格
-  const updateAccessoryValue = (brandName: string, modelName: string, accessoryName: string, newValue: number) => {
-    setBrands(brands.map(b => {
+  const updateAccessoryValue = async (brandName: string, modelName: string, accessoryName: string, newValue: number) => {
+    const updatedBrands = brands.map(b => {
       if (b.name === brandName) {
         return {
           ...b,
@@ -552,9 +516,24 @@ function AdminPage() {
         }
       }
       return b
-    }))
+    })
+    
+    setBrands(updatedBrands)
+    
+    const updatedBrand = updatedBrands.find(b => b.name === brandName)
+    const updatedModel = updatedBrand?.models.find(m => m.name === modelName)
+    
+    if (updatedModel) {
+      const success = await updateAccessoryInDB(brandName, modelName, updatedModel.accessories || [])
+      if (success) {
+        alert('附件价格已更新')
+      } else {
+        alert('保存失败，请重试')
+        loadProductConfig()
+      }
+    }
+    
     setEditingAccessory(null)
-    alert('附件价格已更新')
   }
 
   // 添加附件
@@ -608,28 +587,19 @@ function AdminPage() {
   }
 
   // 更新系数
-  const updateConditionFactor = (label: string, factor: number) => {
-    const index = CONDITIONS.findIndex(c => c.label === label)
-    if (index !== -1) {
-      CONDITIONS[index].factor = factor
+  const updateCoefficient = async (coeff: Coefficient, newFactor: number) => {
+    const success = await updateCoefficientInDB(coeff.category, coeff.label, newFactor)
+    if (success) {
+      setCoefficients(coefficients.map(c => 
+        c.category === coeff.category && c.label === coeff.label 
+          ? { ...c, factor: newFactor }
+          : c
+      ))
+      alert('系数已更新')
+    } else {
+      alert('更新失败，请重试')
     }
-    setEditingCondition(null)
-  }
-
-  const updateUsageFactor = (label: string, factor: number) => {
-    const index = USAGE_OPTIONS.findIndex(u => u.label === label)
-    if (index !== -1) {
-      USAGE_OPTIONS[index].factor = factor
-    }
-    setEditingUsage(null)
-  }
-
-  const updateFaultFactor = (label: string, factor: number) => {
-    const index = FAULT_OPTIONS.findIndex(f => f.label === label)
-    if (index !== -1) {
-      FAULT_OPTIONS[index].factor = factor
-    }
-    setEditingFault(null)
+    setEditingCoefficient(null)
   }
 
   useEffect(() => {
@@ -646,6 +616,10 @@ function AdminPage() {
       case 'CANCELLED': return '已取消'
       default: return status
     }
+  }
+
+  const getCoefficientsByCategory = (category: string) => {
+    return coefficients.filter(c => c.category === category)
   }
 
   if (!isAuthed) {
@@ -667,6 +641,7 @@ function AdminPage() {
           >
             登录
           </button>
+          <p className="text-xs text-gray-400 text-center mt-4">默认密码: admin123456</p>
         </div>
       </div>
     )
@@ -697,7 +672,6 @@ function AdminPage() {
             </div>
           </div>
           
-          {/* Tab 切换 */}
           <div className="flex gap-4 mt-6 border-b overflow-x-auto">
             <button
               onClick={() => setActiveTab('orders')}
@@ -811,7 +785,6 @@ function AdminPage() {
                       </div>
                     </div>
 
-                    {/* 订单详情 */}
                     <div className="grid grid-cols-2 gap-3 mb-4 text-sm bg-gray-50 p-3 rounded-xl">
                       <div><span className="text-gray-500">成色:</span> {order.condition}</div>
                       <div><span className="text-gray-500">使用时间:</span> {order.usage}</div>
@@ -824,7 +797,6 @@ function AdminPage() {
                         {new Date(order.createdAt).toLocaleString()}
                       </div>
                       <div className="flex gap-2 flex-wrap">
-                        {/* 修改报价按钮 - 待审核和处理中状态都可以修改 */}
                         {(order.status === 'PENDING' || order.status === 'PROCESSING') && (
                           <button
                             onClick={() => {
@@ -951,7 +923,6 @@ function AdminPage() {
                         </button>
                       </div>
                       
-                      {/* 附件管理 */}
                       {model.accessories && model.accessories.length > 0 && (
                         <div className="mt-3 pt-3 border-t">
                           <div className="text-sm font-medium mb-2">附件列表：</div>
@@ -1029,40 +1000,40 @@ function AdminPage() {
             <div className="bg-white rounded-2xl p-6">
               <h3 className="font-semibold mb-4">成色系数</h3>
               <div className="space-y-3">
-                {CONDITIONS.map((c) => (
-                  <div key={c.label} className="flex items-center justify-between">
+                {getCoefficientsByCategory('condition').map((c) => (
+                  <div key={c.id} className="flex items-center justify-between">
                     <span className="w-24">{c.label}</span>
-                    {editingCondition === c.label ? (
+                    {editingCoefficient?.id === c.id ? (
                       <div className="flex gap-2">
                         <input
                           type="number"
                           step="0.01"
                           defaultValue={c.factor}
-                          id={`factor-${c.label}`}
+                          id={`factor-${c.id}`}
                           className="w-24 border rounded-lg px-3 py-1"
                         />
                         <button
                           onClick={() => {
-                            const input = document.getElementById(`factor-${c.label}`) as HTMLInputElement
-                            updateConditionFactor(c.label, parseFloat(input.value))
+                            const input = document.getElementById(`factor-${c.id}`) as HTMLInputElement
+                            updateCoefficient(c, parseFloat(input.value))
                           }}
                           className="text-green-600"
                         >
                           <Save size={16} />
                         </button>
-                        <button onClick={() => setEditingCondition(null)} className="text-gray-500">
+                        <button onClick={() => setEditingCoefficient(null)} className="text-gray-500">
                           <X size={16} />
                         </button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <span className="text-blue-600">{c.factor}</span>
-                        <button onClick={() => setEditingCondition(c.label)} className="text-gray-400 hover:text-gray-600">
+                        <button onClick={() => setEditingCoefficient(c)} className="text-gray-400 hover:text-gray-600">
                           <Edit size={14} />
                         </button>
                       </div>
                     )}
-                    <span className="text-sm text-gray-500 w-32 text-right">{c.desc}</span>
+                    <span className="text-sm text-gray-500 w-32 text-right">{c.description}</span>
                   </div>
                 ))}
               </div>
@@ -1071,40 +1042,40 @@ function AdminPage() {
             <div className="bg-white rounded-2xl p-6">
               <h3 className="font-semibold mb-4">使用时间系数</h3>
               <div className="space-y-3">
-                {USAGE_OPTIONS.map((u) => (
-                  <div key={u.label} className="flex items-center justify-between">
+                {getCoefficientsByCategory('usage').map((u) => (
+                  <div key={u.id} className="flex items-center justify-between">
                     <span className="w-32">{u.label}</span>
-                    {editingUsage === u.label ? (
+                    {editingCoefficient?.id === u.id ? (
                       <div className="flex gap-2">
                         <input
                           type="number"
                           step="0.01"
                           defaultValue={u.factor}
-                          id={`usage-${u.label}`}
+                          id={`factor-${u.id}`}
                           className="w-24 border rounded-lg px-3 py-1"
                         />
                         <button
                           onClick={() => {
-                            const input = document.getElementById(`usage-${u.label}`) as HTMLInputElement
-                            updateUsageFactor(u.label, parseFloat(input.value))
+                            const input = document.getElementById(`factor-${u.id}`) as HTMLInputElement
+                            updateCoefficient(u, parseFloat(input.value))
                           }}
                           className="text-green-600"
                         >
                           <Save size={16} />
                         </button>
-                        <button onClick={() => setEditingUsage(null)} className="text-gray-500">
+                        <button onClick={() => setEditingCoefficient(null)} className="text-gray-500">
                           <X size={16} />
                         </button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <span className="text-blue-600">{u.factor}</span>
-                        <button onClick={() => setEditingUsage(u.label)} className="text-gray-400 hover:text-gray-600">
+                        <button onClick={() => setEditingCoefficient(u)} className="text-gray-400 hover:text-gray-600">
                           <Edit size={14} />
                         </button>
                       </div>
                     )}
-                    <span className="text-sm text-gray-500 w-32 text-right">{u.desc}</span>
+                    <span className="text-sm text-gray-500 w-32 text-right">{u.description}</span>
                   </div>
                 ))}
               </div>
@@ -1113,40 +1084,40 @@ function AdminPage() {
             <div className="bg-white rounded-2xl p-6">
               <h3 className="font-semibold mb-4">功能故障系数</h3>
               <div className="space-y-3">
-                {FAULT_OPTIONS.map((f) => (
-                  <div key={f.label} className="flex items-center justify-between">
+                {getCoefficientsByCategory('fault').map((f) => (
+                  <div key={f.id} className="flex items-center justify-between">
                     <span className="w-32">{f.label}</span>
-                    {editingFault === f.label ? (
+                    {editingCoefficient?.id === f.id ? (
                       <div className="flex gap-2">
                         <input
                           type="number"
                           step="0.01"
                           defaultValue={f.factor}
-                          id={`fault-${f.label}`}
+                          id={`factor-${f.id}`}
                           className="w-24 border rounded-lg px-3 py-1"
                         />
                         <button
                           onClick={() => {
-                            const input = document.getElementById(`fault-${f.label}`) as HTMLInputElement
-                            updateFaultFactor(f.label, parseFloat(input.value))
+                            const input = document.getElementById(`factor-${f.id}`) as HTMLInputElement
+                            updateCoefficient(f, parseFloat(input.value))
                           }}
                           className="text-green-600"
                         >
                           <Save size={16} />
                         </button>
-                        <button onClick={() => setEditingFault(null)} className="text-gray-500">
+                        <button onClick={() => setEditingCoefficient(null)} className="text-gray-500">
                           <X size={16} />
                         </button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <span className="text-blue-600">{f.factor}</span>
-                        <button onClick={() => setEditingFault(f.label)} className="text-gray-400 hover:text-gray-600">
+                        <button onClick={() => setEditingCoefficient(f)} className="text-gray-400 hover:text-gray-600">
                           <Edit size={14} />
                         </button>
                       </div>
                     )}
-                    <span className="text-sm text-gray-500 w-32 text-right">{f.desc}</span>
+                    <span className="text-sm text-gray-500 w-32 text-right">{f.description}</span>
                   </div>
                 ))}
               </div>
@@ -1336,7 +1307,7 @@ function AdminPage() {
 }
 
 // ============================================
-// 用户回收页面组件（已隐藏原价）
+// 用户回收页面组件
 // ============================================
 function RecyclePage() {
   const [currentStep, setCurrentStep] = useState<Step>("brand");
@@ -1351,20 +1322,64 @@ function RecyclePage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showEstimate, setShowEstimate] = useState(false);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [coefficients, setCoefficients] = useState<{ conditions: any[], usages: any[], faults: any[] }>({
+    conditions: [],
+    usages: [],
+    faults: []
+  });
+  const [loading, setLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [touchStart, setTouchStart] = useState<number>(0);
 
-  const brand = useMemo(() => INITIAL_BRANDS.find((b) => b.name === brandName)!, [brandName]);
-  const model = useMemo(
-    () => brand.models.find((m) => m.name === modelName)!,
-    [brand, modelName]
-  );
+  // 加载配置
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const [productRes, coeffRes] = await Promise.all([
+          fetch('/api/product-config'),
+          fetch('/api/coefficient-config')
+        ]);
+        const productData = await productRes.json();
+        const coeffData = await coeffRes.json();
+        
+        if (productData.success) {
+          setBrands(productData.data);
+          if (productData.data.length > 0) {
+            setBrandName(productData.data[0].name);
+            if (productData.data[0].models.length > 0) {
+              setModelName(productData.data[0].models[0].name);
+            }
+          }
+        }
+        
+        if (coeffData.success) {
+          setCoefficients({
+            conditions: coeffData.data.filter((c: any) => c.category === 'condition'),
+            usages: coeffData.data.filter((c: any) => c.category === 'usage'),
+            faults: coeffData.data.filter((c: any) => c.category === 'fault')
+          });
+        }
+      } catch (error) {
+        console.error('加载配置失败:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadConfig();
+  }, []);
 
-  const conditionFactor = CONDITIONS.find((c) => c.label === condition)?.factor || 1;
-  const usageFactor = USAGE_OPTIONS.find((u) => u.label === usage)?.factor || 1;
-  const faultFactor = FAULT_OPTIONS.find((f) => f.label === fault)?.factor || 1;
+  const brand = useMemo(() => brands.find((b) => b.name === brandName), [brands, brandName]);
+  const model = useMemo(() => brand?.models.find((m) => m.name === modelName), [brand, modelName]);
+
+  const conditionFactor = coefficients.conditions.find((c) => c.label === condition)?.factor || 1;
+  const usageFactor = coefficients.usages.find((u) => u.label === usage)?.factor || 1;
+  const faultFactor = coefficients.faults.find((f) => f.label === fault)?.factor || 1;
 
   const estimate = useMemo(() => {
+    if (!model) return 0;
+    
     let baseFactor = 0.45;
     if (model.releaseYear === 2024) baseFactor = 0.55;
     if (model.releaseYear === 2025) baseFactor = 0.75;
@@ -1510,12 +1525,14 @@ function RecyclePage() {
       case "brand":
         return (
           <div className="space-y-3">
-            {INITIAL_BRANDS.map((b) => (
+            {brands.map((b) => (
               <button
                 key={b.name}
                 onClick={() => {
                   setBrandName(b.name);
-                  setModelName(b.models[0].name);
+                  if (b.models.length > 0) {
+                    setModelName(b.models[0].name);
+                  }
                   setSelectedAccessories([]);
                   nextStep();
                 }}
@@ -1536,7 +1553,7 @@ function RecyclePage() {
       case "model":
         return (
           <div className="space-y-3">
-            {brand.models.map((m) => (
+            {brand?.models.map((m) => (
               <button
                 key={m.name}
                 onClick={() => {
@@ -1567,7 +1584,7 @@ function RecyclePage() {
       case "condition":
         return (
           <div className="space-y-3">
-            {CONDITIONS.map((c) => (
+            {coefficients.conditions.map((c) => (
               <button
                 key={c.label}
                 onClick={() => {
@@ -1584,7 +1601,7 @@ function RecyclePage() {
                   <div>
                     <div className="font-semibold text-lg">{c.label}</div>
                     <div className={`text-sm mt-1 ${condition === c.label ? "text-white/70" : "text-neutral-500"}`}>
-                      {c.desc}
+                      {c.description}
                     </div>
                   </div>
                   {condition === c.label && <Check size={24} />}
@@ -1597,7 +1614,7 @@ function RecyclePage() {
       case "usage":
         return (
           <div className="space-y-3">
-            {USAGE_OPTIONS.map((u) => (
+            {coefficients.usages.map((u) => (
               <button
                 key={u.label}
                 onClick={() => {
@@ -1614,7 +1631,7 @@ function RecyclePage() {
                   <div>
                     <div className="font-semibold text-lg">{u.label}</div>
                     <div className={`text-sm mt-1 ${usage === u.label ? "text-white/70" : "text-neutral-500"}`}>
-                      {u.desc}
+                      {u.description}
                     </div>
                   </div>
                   {usage === u.label && <Check size={24} />}
@@ -1627,7 +1644,7 @@ function RecyclePage() {
       case "fault":
         return (
           <div className="space-y-3">
-            {FAULT_OPTIONS.map((f) => (
+            {coefficients.faults.map((f) => (
               <button
                 key={f.label}
                 onClick={() => {
@@ -1644,7 +1661,7 @@ function RecyclePage() {
                   <div>
                     <div className="font-semibold text-lg">{f.label}</div>
                     <div className={`text-sm mt-1 ${fault === f.label ? "text-white/70" : "text-neutral-500"}`}>
-                      {f.desc}
+                      {f.description}
                     </div>
                   </div>
                   {fault === f.label && <Check size={24} />}
@@ -1657,7 +1674,7 @@ function RecyclePage() {
       case "accessories":
         return (
           <div className="space-y-3">
-            {model.accessories && model.accessories.length > 0 ? (
+            {model?.accessories && model.accessories.length > 0 ? (
               <>
                 {model.accessories.map((a) => (
                   <button
@@ -1770,6 +1787,14 @@ function RecyclePage() {
         );
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 flex items-center justify-center">
+        <div className="text-center">加载中...</div>
+      </div>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 pb-20">
@@ -1902,10 +1927,10 @@ function RecyclePage() {
 }
 
 // ============================================
-// 主入口 - 根据路由显示不同页面
+// 主入口
 // ============================================
 export default function App() {
-  const isAdmin = window.location.pathname === '/admin' || window.location.search.includes('admin=true')
+  const isAdmin = window.location.search.includes('admin=true')
   const isQuery = window.location.search.includes('query=true')
   
   if (isAdmin) {
