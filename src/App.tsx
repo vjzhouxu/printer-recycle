@@ -1,3 +1,6 @@
+// 检查是否访问后台
+const isAdmin = window.location.pathname === '/admin' || window.location.search.includes('admin=true')
+
 "use client";
 
 import { useMemo, useState, useRef, useEffect } from "react";
