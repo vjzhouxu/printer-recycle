@@ -37,14 +37,6 @@ type Brand = {
   models: PrinterModel[];
 };
 
-type Coefficient = {
-  id: string;
-  category: string;
-  label: string;
-  factor: number;
-  description: string;
-};
-
 // 默认数据（API 失败时的后备）
 const DEFAULT_CONDITIONS = [
   { label: "99新", factor: 1.1, description: "几乎全新，无使用痕迹" },
@@ -261,6 +253,29 @@ function RecyclePage() {
     loadData();
   }, []);
 
+  // 刷新品牌数据（用于附件更新后同步）
+  const refreshBrands = async () => {
+    try {
+      const res = await fetch('/api/product-config');
+      const data = await res.json();
+      if (data.success && data.data.length > 0) {
+        setBrands(data.data);
+        // 保持当前选中的品牌和型号
+        const currentBrand = data.data.find((b: Brand) => b.name === brandName);
+        if (currentBrand) {
+          const currentModel = currentBrand.models.find((m: PrinterModel) => m.name === modelName);
+          if (currentModel) {
+            // 更新附件选择状态
+            const stillValid = currentModel.accessories?.filter(a => selectedAccessories.includes(a.name)).map(a => a.name) || [];
+            setSelectedAccessories(stillValid);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('刷新数据失败:', error);
+    }
+  };
+
   const brand = useMemo(() => brands.find((b) => b.name === brandName), [brands, brandName]);
   const model = useMemo(() => brand?.models.find((m) => m.name === modelName), [brand, modelName]);
 
@@ -397,6 +412,15 @@ function RecyclePage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // 刷新数据（用于页面重新获得焦点时）
+  useEffect(() => {
+    const handleFocus = () => {
+      refreshBrands();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [brandName, modelName, selectedAccessories]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 flex items-center justify-center">
@@ -422,38 +446,38 @@ function RecyclePage() {
         </div>
       </div>
 
-      {/* 进度条 */}
+      {/* 进度条 - 始终显示 */}
       {!showEstimate && (
-        <>
-          <div className="sticky top-[73px] z-40 bg-white border-b border-neutral-200">
-            <div className="max-w-md mx-auto px-4 py-3">
-              <div className="flex items-center justify-between mb-2">
-                <button onClick={prevStep} className={`p-2 rounded-full transition ${currentIndex === 0 ? "invisible" : "hover:bg-neutral-100"}`}>
-                  <ChevronLeft size={20} />
-                </button>
-                <div className="text-sm text-neutral-500">第 {currentIndex + 1} / {steps.length} 步</div>
-                <div className="w-9" />
-              </div>
-              <div className="h-1.5 bg-neutral-200 rounded-full overflow-hidden">
-                <div className="h-full bg-black transition-all duration-300 rounded-full" style={{ width: `${progress}%` }} />
-              </div>
+        <div className="sticky top-[73px] z-40 bg-white border-b border-neutral-200">
+          <div className="max-w-md mx-auto px-4 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <button onClick={prevStep} className={`p-2 rounded-full transition ${currentIndex === 0 ? "invisible" : "hover:bg-neutral-100"}`}>
+                <ChevronLeft size={20} />
+              </button>
+              <div className="text-sm text-neutral-500">第 {currentIndex + 1} / {steps.length} 步</div>
+              <div className="w-9" />
+            </div>
+            <div className="h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+              <div className="h-full bg-black transition-all duration-300 rounded-full" style={{ width: `${progress}%` }} />
             </div>
           </div>
+        </div>
+      )}
 
-          {/* 估价卡片 */}
-          <div className="sticky top-[129px] z-40 bg-gradient-to-r from-black to-neutral-800 text-white mx-4 mt-4 rounded-2xl p-4 shadow-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs opacity-70">当前估价</div>
-                <div className="text-2xl font-bold">¥{estimate}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs opacity-70">{brandName}</div>
-                <div className="text-sm font-medium">{modelName}</div>
-              </div>
+      {/* 估价卡片 - 只在最后一步（联系方式）显示 */}
+      {!showEstimate && currentStep === "contact" && (
+        <div className="sticky top-[129px] z-40 bg-gradient-to-r from-black to-neutral-800 text-white mx-4 mt-4 rounded-2xl p-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-xs opacity-70">当前估价</div>
+              <div className="text-2xl font-bold">¥{estimate}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs opacity-70">{brandName}</div>
+              <div className="text-sm font-medium">{modelName}</div>
             </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* 主内容 */}
@@ -556,9 +580,23 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 联系方式 */}
+            {/* 联系方式 - 显示估价卡片 */}
             {currentStep === "contact" && (
               <div className="space-y-6">
+                {/* 估价卡片（内嵌在内容中） */}
+                <div className="bg-gradient-to-r from-black to-neutral-800 text-white rounded-2xl p-5 shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs opacity-70">当前估价</div>
+                      <div className="text-3xl font-bold">¥{estimate}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs opacity-70">{brandName}</div>
+                      <div className="text-sm font-medium">{modelName}</div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="bg-white rounded-2xl p-6 shadow-sm">
                   <label className="block text-sm font-medium mb-2">手机号码</label>
                   <input type="tel" placeholder="请输入手机号码" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-lg focus:outline-none focus:border-black" />
