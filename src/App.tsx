@@ -61,6 +61,9 @@ const DEFAULT_FAULTS = [
   { label: "无法开机", factor: 0.55, description: "无法正常使用" },
 ];
 
+// 品牌排序顺序（市场份额从高到低）
+const BRAND_ORDER = ["拓竹", "创想三维", "闪铸"];
+
 type Step = "brand" | "model" | "condition" | "usage" | "fault" | "accessories" | "contact";
 
 // ============================================
@@ -197,7 +200,7 @@ function RecyclePage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [brandName, setBrandName] = useState("");
   const [modelName, setModelName] = useState("");
-  const [condition, setCondition] = useState("95新");
+  const [condition, setCondition] = useState("99新");
   const [usage, setUsage] = useState("100小时内");
   const [fault, setFault] = useState("无故障");
   const [conditions, setConditions] = useState(DEFAULT_CONDITIONS);
@@ -213,12 +216,50 @@ function RecyclePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [touchStart, setTouchStart] = useState<number>(0);
 
+  // 排序函数：成色按系数从高到低
+  const sortConditionsByFactor = (conds: any[]) => {
+    return [...conds].sort((a, b) => b.factor - a.factor);
+  };
+
+  // 排序函数：使用时间按系数从高到低
+  const sortUsagesByFactor = (usagesList: any[]) => {
+    return [...usagesList].sort((a, b) => b.factor - a.factor);
+  };
+
+  // 排序函数：故障按系数从高到低
+  const sortFaultsByFactor = (faultsList: any[]) => {
+    return [...faultsList].sort((a, b) => b.factor - a.factor);
+  };
+
+  // 排序函数：型号从高端到低端（按发布时间新 -> 旧，价格高 -> 低）
+  const sortModelsByPremium = (models: PrinterModel[]) => {
+    return [...models].sort((a, b) => {
+      // 先按年份降序（新发布的在前）
+      if (a.releaseYear !== b.releaseYear) {
+        return b.releaseYear - a.releaseYear;
+      }
+      // 年份相同按价格降序
+      return b.originalPrice - a.originalPrice;
+    });
+  };
+
+  // 排序函数：品牌按指定顺序
+  const sortBrandsByOrder = (brandsList: Brand[]) => {
+    return [...brandsList].sort((a, b) => {
+      const indexA = BRAND_ORDER.indexOf(a.name);
+      const indexB = BRAND_ORDER.indexOf(b.name);
+      if (indexA === -1 && indexB === -1) return 0;
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      return indexA - indexB;
+    });
+  };
+
   // 加载数据
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       try {
-        // 并行加载，提高速度
         const [productRes, coeffRes] = await Promise.all([
           fetch('/api/product-config'),
           fetch('/api/coefficient-config')
@@ -228,10 +269,17 @@ function RecyclePage() {
         const coeffData = await coeffRes.json();
         
         if (productData.success && productData.data.length > 0) {
-          setBrands(productData.data);
-          setBrandName(productData.data[0].name);
-          if (productData.data[0].models.length > 0) {
-            setModelName(productData.data[0].models[0].name);
+          // 对每个品牌的型号进行排序
+          const sortedBrands = productData.data.map((brand: Brand) => ({
+            ...brand,
+            models: sortModelsByPremium(brand.models)
+          }));
+          // 对品牌进行排序
+          const finalBrands = sortBrandsByOrder(sortedBrands);
+          setBrands(finalBrands);
+          setBrandName(finalBrands[0]?.name || "");
+          if (finalBrands[0]?.models.length > 0) {
+            setModelName(finalBrands[0].models[0].name);
           }
         }
         
@@ -239,12 +287,16 @@ function RecyclePage() {
           const cond = coeffData.data.filter((c: any) => c.category === 'condition');
           const use = coeffData.data.filter((c: any) => c.category === 'usage');
           const flt = coeffData.data.filter((c: any) => c.category === 'fault');
-          if (cond.length) setConditions(cond);
-          if (use.length) setUsages(use);
-          if (flt.length) setFaults(flt);
+          if (cond.length) setConditions(sortConditionsByFactor(cond));
+          if (use.length) setUsages(sortUsagesByFactor(use));
+          if (flt.length) setFaults(sortFaultsByFactor(flt));
         }
       } catch (error) {
         console.error('加载数据失败:', error);
+        // 使用默认数据并排序
+        setConditions(sortConditionsByFactor(DEFAULT_CONDITIONS));
+        setUsages(sortUsagesByFactor(DEFAULT_USAGES));
+        setFaults(sortFaultsByFactor(DEFAULT_FAULTS));
       } finally {
         setLoading(false);
       }
@@ -259,9 +311,16 @@ function RecyclePage() {
       const res = await fetch('/api/product-config');
       const data = await res.json();
       if (data.success && data.data.length > 0) {
-        setBrands(data.data);
+        // 对每个品牌的型号进行排序
+        const sortedBrands = data.data.map((brand: Brand) => ({
+          ...brand,
+          models: sortModelsByPremium(brand.models)
+        }));
+        // 对品牌进行排序
+        const finalBrands = sortBrandsByOrder(sortedBrands);
+        setBrands(finalBrands);
         // 保持当前选中的品牌和型号
-        const currentBrand = data.data.find((b: Brand) => b.name === brandName);
+        const currentBrand = finalBrands.find((b: Brand) => b.name === brandName);
         if (currentBrand) {
           const currentModel = currentBrand.models.find((m: PrinterModel) => m.name === modelName);
           if (currentModel) {
@@ -275,6 +334,26 @@ function RecyclePage() {
       console.error('刷新数据失败:', error);
     }
   };
+
+  // 定时刷新附件价格（每30秒）
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshBrands();
+    }, 30000);
+    
+    // 页面可见性变化时刷新
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refreshBrands();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [brandName, modelName, selectedAccessories]);
 
   const brand = useMemo(() => brands.find((b) => b.name === brandName), [brands, brandName]);
   const model = useMemo(() => brand?.models.find((m) => m.name === modelName), [brand, modelName]);
@@ -412,15 +491,6 @@ function RecyclePage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // 刷新数据（用于页面重新获得焦点时）
-  useEffect(() => {
-    const handleFocus = () => {
-      refreshBrands();
-    };
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [brandName, modelName, selectedAccessories]);
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 flex items-center justify-center">
@@ -489,7 +559,7 @@ function RecyclePage() {
               <p className="text-neutral-500 text-sm mt-1">请选择以下选项</p>
             </div>
             
-            {/* 品牌选择 */}
+            {/* 品牌选择 - 按市场份额排序 */}
             {currentStep === "brand" && (
               <div className="space-y-3">
                 {brands.map((b) => (
@@ -503,13 +573,13 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 型号选择 */}
+            {/* 型号选择 - 按高端到低端排序 */}
             {currentStep === "model" && (
               <div className="space-y-3">
                 {brand?.models.map((m) => (
                   <button key={m.name} onClick={() => { setModelName(m.name); setSelectedAccessories([]); nextStep(); }} className="w-full bg-white rounded-2xl p-5 text-left shadow-sm">
                     <div className="flex items-center justify-between">
-                      <div><div className="font-semibold text-lg">{m.name}</div><div className="text-sm text-neutral-500 mt-1">{m.releaseYear}年上市</div></div>
+                      <div><div className="font-semibold text-lg">{m.name}</div><div className="text-sm text-neutral-500 mt-1">{m.releaseYear}年上市 · 原价 ¥{m.originalPrice}</div></div>
                       <ChevronRight className="text-neutral-400" />
                     </div>
                   </button>
@@ -517,7 +587,7 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 成色选择 */}
+            {/* 成色选择 - 按系数从高到低排序 */}
             {currentStep === "condition" && (
               <div className="space-y-3">
                 {conditions.map((c) => (
@@ -531,7 +601,7 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 使用时间选择 */}
+            {/* 使用时间选择 - 按系数从高到低排序 */}
             {currentStep === "usage" && (
               <div className="space-y-3">
                 {usages.map((u) => (
@@ -545,7 +615,7 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 故障选择 */}
+            {/* 故障选择 - 按系数从高到低排序 */}
             {currentStep === "fault" && (
               <div className="space-y-3">
                 {faults.map((f) => (
