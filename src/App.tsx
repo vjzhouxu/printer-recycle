@@ -234,11 +234,9 @@ function RecyclePage() {
   // 排序函数：型号从高端到低端（按发布时间新 -> 旧，价格高 -> 低）
   const sortModelsByPremium = (models: PrinterModel[]) => {
     return [...models].sort((a, b) => {
-      // 先按年份降序（新发布的在前）
       if (a.releaseYear !== b.releaseYear) {
         return b.releaseYear - a.releaseYear;
       }
-      // 年份相同按价格降序
       return b.originalPrice - a.originalPrice;
     });
   };
@@ -269,12 +267,10 @@ function RecyclePage() {
         const coeffData = await coeffRes.json();
         
         if (productData.success && productData.data.length > 0) {
-          // 对每个品牌的型号进行排序
           const sortedBrands = productData.data.map((brand: Brand) => ({
             ...brand,
             models: sortModelsByPremium(brand.models)
           }));
-          // 对品牌进行排序
           const finalBrands = sortBrandsByOrder(sortedBrands);
           setBrands(finalBrands);
           setBrandName(finalBrands[0]?.name || "");
@@ -293,7 +289,6 @@ function RecyclePage() {
         }
       } catch (error) {
         console.error('加载数据失败:', error);
-        // 使用默认数据并排序
         setConditions(sortConditionsByFactor(DEFAULT_CONDITIONS));
         setUsages(sortUsagesByFactor(DEFAULT_USAGES));
         setFaults(sortFaultsByFactor(DEFAULT_FAULTS));
@@ -305,26 +300,22 @@ function RecyclePage() {
     loadData();
   }, []);
 
-  // 刷新品牌数据（用于附件更新后同步）
+  // 刷新品牌数据
   const refreshBrands = async () => {
     try {
       const res = await fetch('/api/product-config');
       const data = await res.json();
       if (data.success && data.data.length > 0) {
-        // 对每个品牌的型号进行排序
         const sortedBrands = data.data.map((brand: Brand) => ({
           ...brand,
           models: sortModelsByPremium(brand.models)
         }));
-        // 对品牌进行排序
         const finalBrands = sortBrandsByOrder(sortedBrands);
         setBrands(finalBrands);
-        // 保持当前选中的品牌和型号
         const currentBrand = finalBrands.find((b: Brand) => b.name === brandName);
         if (currentBrand) {
           const currentModel = currentBrand.models.find((m: PrinterModel) => m.name === modelName);
           if (currentModel) {
-            // 更新附件选择状态
             const stillValid = currentModel.accessories?.filter(a => selectedAccessories.includes(a.name)).map(a => a.name) || [];
             setSelectedAccessories(stillValid);
           }
@@ -335,13 +326,12 @@ function RecyclePage() {
     }
   };
 
-  // 定时刷新附件价格（每30秒）
+  // 定时刷新附件价格
   useEffect(() => {
     const interval = setInterval(() => {
       refreshBrands();
     }, 30000);
     
-    // 页面可见性变化时刷新
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         refreshBrands();
@@ -370,18 +360,21 @@ function RecyclePage() {
     if (model.releaseYear === 2025) baseFactor = 0.75;
 
     const basePrice = model.originalPrice * baseFactor;
-    const accessoriesPrice =
-      model.accessories
-        ?.filter((a) => selectedAccessories.includes(a.name))
-        .reduce((sum, a) => {
-          let accessoryFactor = 0.45;
-          if (model.releaseYear === 2024) accessoryFactor = 0.55;
-          if (model.releaseYear === 2025) accessoryFactor = 0.75;
-          return sum + a.value * accessoryFactor;
-        }, 0) || 0;
+    // 附件价格直接使用后台配置的值
+    const accessoriesPrice = model.accessories
+      ?.filter((a) => selectedAccessories.includes(a.name))
+      .reduce((sum, a) => sum + a.value, 0) || 0;
 
     return Math.round(basePrice * conditionFactor * usageFactor * faultFactor + accessoriesPrice);
   }, [model, conditionFactor, usageFactor, faultFactor, selectedAccessories]);
+
+  // 预估未来价格（每3个月降10%）
+  const futurePrices = useMemo(() => {
+    const threeMonth = Math.round(estimate * 0.9);
+    const sixMonth = Math.round(estimate * 0.81);
+    const nineMonth = Math.round(estimate * 0.73);
+    return { threeMonth, sixMonth, nineMonth };
+  }, [estimate]);
 
   const steps = [
     { id: "brand" as Step, title: "选择品牌" },
@@ -393,12 +386,23 @@ function RecyclePage() {
     { id: "contact" as Step, title: "联系方式" },
   ];
 
-  const currentIndex = steps.findIndex((s) => s.id === currentStep);
-  const progress = ((currentIndex + 1) / steps.length) * 100;
+  // 检查当前型号是否有附件，如果没有则跳过附件步骤
+  const getNextStep = (currentStepId: Step): Step => {
+    const currentIndex = steps.findIndex(s => s.id === currentStepId);
+    let nextIndex = currentIndex + 1;
+    
+    // 如果下一步是附件步骤，但当前型号没有附件，则继续往后跳
+    if (steps[nextIndex]?.id === "accessories" && (!model?.accessories || model.accessories.length === 0)) {
+      nextIndex++;
+    }
+    
+    return steps[nextIndex]?.id || "contact";
+  };
 
   const nextStep = () => {
-    if (currentIndex < steps.length - 1) {
-      setCurrentStep(steps[currentIndex + 1].id);
+    const next = getNextStep(currentStep);
+    if (next) {
+      setCurrentStep(next);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       setShowEstimate(true);
@@ -407,8 +411,16 @@ function RecyclePage() {
   };
 
   const prevStep = () => {
-    if (currentIndex > 0) {
-      setCurrentStep(steps[currentIndex - 1].id);
+    const currentIdx = steps.findIndex(s => s.id === currentStep);
+    let prevIdx = currentIdx - 1;
+    
+    // 如果上一步是附件步骤，但当前型号没有附件，则继续往前跳
+    while (prevIdx >= 0 && steps[prevIdx].id === "accessories" && (!model?.accessories || model.accessories.length === 0)) {
+      prevIdx--;
+    }
+    
+    if (prevIdx >= 0) {
+      setCurrentStep(steps[prevIdx].id);
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
@@ -499,6 +511,16 @@ function RecyclePage() {
     );
   }
 
+  // 计算实际显示的步骤（跳过无附件的附件步骤）
+  const visibleSteps = steps.filter(step => {
+    if (step.id === "accessories" && (!model?.accessories || model.accessories.length === 0)) {
+      return false;
+    }
+    return true;
+  });
+  const currentVisibleIndex = visibleSteps.findIndex(s => s.id === currentStep);
+  const visibleProgress = ((currentVisibleIndex + 1) / visibleSteps.length) * 100;
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 pb-20">
       {/* 顶部导航 */}
@@ -516,19 +538,19 @@ function RecyclePage() {
         </div>
       </div>
 
-      {/* 进度条 - 始终显示 */}
+      {/* 进度条 */}
       {!showEstimate && (
         <div className="sticky top-[73px] z-40 bg-white border-b border-neutral-200">
           <div className="max-w-md mx-auto px-4 py-3">
             <div className="flex items-center justify-between mb-2">
-              <button onClick={prevStep} className={`p-2 rounded-full transition ${currentIndex === 0 ? "invisible" : "hover:bg-neutral-100"}`}>
+              <button onClick={prevStep} className={`p-2 rounded-full transition ${currentVisibleIndex === 0 ? "invisible" : "hover:bg-neutral-100"}`}>
                 <ChevronLeft size={20} />
               </button>
-              <div className="text-sm text-neutral-500">第 {currentIndex + 1} / {steps.length} 步</div>
+              <div className="text-sm text-neutral-500">第 {currentVisibleIndex + 1} / {visibleSteps.length} 步</div>
               <div className="w-9" />
             </div>
             <div className="h-1.5 bg-neutral-200 rounded-full overflow-hidden">
-              <div className="h-full bg-black transition-all duration-300 rounded-full" style={{ width: `${progress}%` }} />
+              <div className="h-full bg-black transition-all duration-300 rounded-full" style={{ width: `${visibleProgress}%` }} />
             </div>
           </div>
         </div>
@@ -555,11 +577,11 @@ function RecyclePage() {
         {!showEstimate ? (
           <div className="animate-fadeIn">
             <div className="mb-4">
-              <h2 className="text-2xl font-bold">{steps[currentIndex].title}</h2>
+              <h2 className="text-2xl font-bold">{steps.find(s => s.id === currentStep)?.title}</h2>
               <p className="text-neutral-500 text-sm mt-1">请选择以下选项</p>
             </div>
             
-            {/* 品牌选择 - 按市场份额排序 */}
+            {/* 品牌选择 */}
             {currentStep === "brand" && (
               <div className="space-y-3">
                 {brands.map((b) => (
@@ -573,13 +595,16 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 型号选择 - 按高端到低端排序 */}
+            {/* 型号选择 - 不显示原价 */}
             {currentStep === "model" && (
               <div className="space-y-3">
                 {brand?.models.map((m) => (
                   <button key={m.name} onClick={() => { setModelName(m.name); setSelectedAccessories([]); nextStep(); }} className="w-full bg-white rounded-2xl p-5 text-left shadow-sm">
                     <div className="flex items-center justify-between">
-                      <div><div className="font-semibold text-lg">{m.name}</div><div className="text-sm text-neutral-500 mt-1">{m.releaseYear}年上市 · 原价 ¥{m.originalPrice}</div></div>
+                      <div>
+                        <div className="font-semibold text-lg">{m.name}</div>
+                        <div className="text-sm text-neutral-500 mt-1">{m.releaseYear}年上市</div>
+                      </div>
                       <ChevronRight className="text-neutral-400" />
                     </div>
                   </button>
@@ -587,7 +612,7 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 成色选择 - 按系数从高到低排序 */}
+            {/* 成色选择 */}
             {currentStep === "condition" && (
               <div className="space-y-3">
                 {conditions.map((c) => (
@@ -601,7 +626,7 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 使用时间选择 - 按系数从高到低排序 */}
+            {/* 使用时间选择 */}
             {currentStep === "usage" && (
               <div className="space-y-3">
                 {usages.map((u) => (
@@ -615,7 +640,7 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 故障选择 - 按系数从高到低排序 */}
+            {/* 故障选择 */}
             {currentStep === "fault" && (
               <div className="space-y-3">
                 {faults.map((f) => (
@@ -629,31 +654,30 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 附件选择 */}
-            {currentStep === "accessories" && (
+            {/* 附件选择 - 直接显示后台价格 */}
+            {currentStep === "accessories" && model?.accessories && model.accessories.length > 0 && (
               <div className="space-y-3">
-                {model?.accessories && model.accessories.length > 0 ? (
-                  <>
-                    {model.accessories.map((a) => (
-                      <button key={a.name} onClick={() => { setSelectedAccessories(prev => prev.includes(a.name) ? prev.filter(x => x !== a.name) : [...prev, a.name]); }} className={`w-full rounded-2xl p-5 text-left ${selectedAccessories.includes(a.name) ? "bg-black text-white" : "bg-white shadow-sm"}`}>
-                        <div className="flex items-center justify-between">
-                          <div><div className="font-semibold text-lg">{a.name}</div><div className={`text-sm mt-1 ${selectedAccessories.includes(a.name) ? "text-white/70" : "text-neutral-500"}`}>增值 ¥{Math.round(a.value * (model.releaseYear === 2025 ? 0.75 : model.releaseYear === 2024 ? 0.55 : 0.45))}</div></div>
-                          {selectedAccessories.includes(a.name) && <Check size={24} />}
+                {model.accessories.map((a) => (
+                  <button key={a.name} onClick={() => { setSelectedAccessories(prev => prev.includes(a.name) ? prev.filter(x => x !== a.name) : [...prev, a.name]); }} className={`w-full rounded-2xl p-5 text-left ${selectedAccessories.includes(a.name) ? "bg-black text-white" : "bg-white shadow-sm"}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-semibold text-lg">{a.name}</div>
+                        <div className={`text-sm mt-1 ${selectedAccessories.includes(a.name) ? "text-white/70" : "text-neutral-500"}`}>
+                          增值 ¥{a.value}
                         </div>
-                      </button>
-                    ))}
-                    <button onClick={nextStep} className="w-full bg-black text-white rounded-2xl py-4 font-semibold mt-4">下一步</button>
-                  </>
-                ) : (
-                  <div className="text-center py-12"><p className="text-neutral-500">该型号暂无可选附件</p><button onClick={nextStep} className="mt-6 bg-black text-white rounded-2xl px-8 py-3">继续</button></div>
-                )}
+                      </div>
+                      {selectedAccessories.includes(a.name) && <Check size={24} />}
+                    </div>
+                  </button>
+                ))}
+                <button onClick={nextStep} className="w-full bg-black text-white rounded-2xl py-4 font-semibold mt-4">下一步</button>
               </div>
             )}
 
-            {/* 联系方式 - 显示估价卡片 */}
+            {/* 联系方式 */}
             {currentStep === "contact" && (
               <div className="space-y-6">
-                {/* 估价卡片（内嵌在内容中） */}
+                {/* 估价卡片（内嵌） */}
                 <div className="bg-gradient-to-r from-black to-neutral-800 text-white rounded-2xl p-5 shadow-lg">
                   <div className="flex items-center justify-between">
                     <div>
@@ -688,11 +712,14 @@ function RecyclePage() {
           </div>
         ) : (
           <div className="animate-fadeIn space-y-4">
+            {/* 当前估价 */}
             <div className="bg-gradient-to-br from-black to-neutral-900 text-white rounded-3xl p-8 text-center">
               <div className="text-sm opacity-70 mb-2">最高回收价</div>
               <div className="text-6xl font-bold">¥{estimate}</div>
               <div className="text-sm opacity-70 mt-3">最终价格以人工检测为准</div>
             </div>
+
+            {/* 回收信息汇总 */}
             <div className="bg-white rounded-3xl p-6 shadow-sm">
               <h3 className="font-semibold mb-4">回收信息</h3>
               <div className="space-y-3 text-sm">
@@ -703,6 +730,46 @@ function RecyclePage() {
                 {selectedAccessories.length > 0 && (<div className="flex justify-between"><span className="text-neutral-500">附加配件</span><span className="font-medium">{selectedAccessories.join("、")}</span></div>)}
               </div>
             </div>
+
+            {/* 未来估价趋势表 */}
+            <div className="bg-white rounded-3xl p-6 shadow-sm">
+              <h3 className="font-semibold mb-4">预估回收价趋势</h3>
+              <div className="space-y-4">
+                {/* 3个月后 */}
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span>3个月后</span>
+                    <span className="font-medium">¥{futurePrices.threeMonth}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                    <div className="bg-black/80 h-2 rounded-full" style={{ width: `${(futurePrices.threeMonth / estimate) * 100}%` }} />
+                  </div>
+                </div>
+                {/* 6个月后 */}
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span>6个月后</span>
+                    <span className="font-medium">¥{futurePrices.sixMonth}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                    <div className="bg-black/60 h-2 rounded-full" style={{ width: `${(futurePrices.sixMonth / estimate) * 100}%` }} />
+                  </div>
+                </div>
+                {/* 9个月后 */}
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span>9个月后</span>
+                    <span className="font-medium">¥{futurePrices.nineMonth}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                    <div className="bg-black/40 h-2 rounded-full" style={{ width: `${(futurePrices.nineMonth / estimate) * 100}%` }} />
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-neutral-400 mt-4 text-center">* 预估价格仅供参考，每3个月预计降价10%</p>
+            </div>
+
+            {/* 操作按钮 */}
             <button onClick={() => { setShowEstimate(false); setCurrentStep("contact"); }} className="w-full bg-black text-white rounded-2xl py-5 font-semibold text-lg">立即回收</button>
             <button onClick={handleReestimate} className="w-full bg-white text-black border-2 border-black rounded-2xl py-4 font-medium">重新估价</button>
           </div>
