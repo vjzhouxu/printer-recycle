@@ -5,26 +5,21 @@ const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// 简单的内存缓存
 let cachedData = null
 let cacheTime = null
-const CACHE_DURATION = 5 * 60 * 1000 // 5分钟缓存
+const CACHE_DURATION = 5 * 60 * 1000
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   res.setHeader('Content-Type', 'application/json')
-  res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate') // Vercel CDN 缓存
+  res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate')
   
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end()
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end()
 
-  // GET - 获取所有产品配置
   if (req.method === 'GET') {
     try {
-      // 使用缓存
       if (cachedData && cacheTime && (Date.now() - cacheTime) < CACHE_DURATION) {
         return res.status(200).json({ success: true, data: cachedData })
       }
@@ -36,26 +31,21 @@ export default async function handler(req, res) {
       
       if (error) throw error
       
-      // 转换为前端需要的格式
       const brandsMap = new Map()
       data.forEach(product => {
         if (!brandsMap.has(product.brand)) {
-          brandsMap.set(product.brand, {
-            name: product.brand,
-            models: []
-          })
+          brandsMap.set(product.brand, { name: product.brand, models: [] })
         }
         brandsMap.get(product.brand).models.push({
           name: product.model,
           releaseYear: product.release_year,
           originalPrice: product.original_price,
+          basePrice: product.base_price,  // 新增基准价
           accessories: product.accessories || []
         })
       })
       
       const result = Array.from(brandsMap.values())
-      
-      // 更新缓存
       cachedData = result
       cacheTime = Date.now()
       
@@ -66,18 +56,19 @@ export default async function handler(req, res) {
     }
   }
   
-  // PUT - 更新产品配置（附件价格）
   else if (req.method === 'PUT') {
     try {
-      const { brand, model, accessories } = req.body
+      const { brand, model, accessories, basePrice } = req.body
       
-      // 清除缓存
       cachedData = null
       cacheTime = null
       
+      const updateData = { accessories, updated_at: new Date().toISOString() }
+      if (basePrice !== undefined) updateData.base_price = basePrice
+      
       const { data, error } = await supabase
         .from('product_config')
-        .update({ accessories, updated_at: new Date().toISOString() })
+        .update(updateData)
         .eq('brand', brand)
         .eq('model', model)
         .select()
