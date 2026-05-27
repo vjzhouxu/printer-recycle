@@ -18,6 +18,7 @@ import {
   Search,
   X,
   ArrowLeft,
+  Image as ImageIcon,
 } from "lucide-react";
 
 type Accessory = {
@@ -35,6 +36,12 @@ type PrinterModel = {
 type Brand = {
   name: string;
   models: PrinterModel[];
+};
+
+type UploadedImage = {
+  file: File;
+  preview: string;
+  id: string;
 };
 
 // 默认数据（API 失败时的后备）
@@ -208,13 +215,13 @@ function RecyclePage() {
   const [faults, setFaults] = useState(DEFAULT_FAULTS);
   const [selectedAccessories, setSelectedAccessories] = useState<string[]>([]);
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [uploadedImage, setUploadedImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showEstimate, setShowEstimate] = useState(false);
   const [loading, setLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [touchStart, setTouchStart] = useState<number>(0);
+  const MAX_IMAGES = 7;
 
   // 排序函数：成色按系数从高到低
   const sortConditionsByFactor = (conds: any[]) => {
@@ -231,7 +238,7 @@ function RecyclePage() {
     return [...faultsList].sort((a, b) => b.factor - a.factor);
   };
 
-  // 排序函数：型号从高端到低端（按发布时间新 -> 旧，价格高 -> 低）
+  // 排序函数：型号从高端到低端
   const sortModelsByPremium = (models: PrinterModel[]) => {
     return [...models].sort((a, b) => {
       if (a.releaseYear !== b.releaseYear) {
@@ -360,7 +367,6 @@ function RecyclePage() {
     if (model.releaseYear === 2025) baseFactor = 0.75;
 
     const basePrice = model.originalPrice * baseFactor;
-    // 附件价格直接使用后台配置的值
     const accessoriesPrice = model.accessories
       ?.filter((a) => selectedAccessories.includes(a.name))
       .reduce((sum, a) => sum + a.value, 0) || 0;
@@ -386,13 +392,15 @@ function RecyclePage() {
     { id: "contact" as Step, title: "联系方式" },
   ];
 
-  // 检查当前型号是否有附件，如果没有则跳过附件步骤
+  // 检查当前型号是否有附件
+  const hasAccessories = model?.accessories && model.accessories.length > 0;
+
+  // 获取下一步
   const getNextStep = (currentStepId: Step): Step => {
     const currentIndex = steps.findIndex(s => s.id === currentStepId);
     let nextIndex = currentIndex + 1;
     
-    // 如果下一步是附件步骤，但当前型号没有附件，则继续往后跳
-    if (steps[nextIndex]?.id === "accessories" && (!model?.accessories || model.accessories.length === 0)) {
+    if (steps[nextIndex]?.id === "accessories" && !hasAccessories) {
       nextIndex++;
     }
     
@@ -401,7 +409,7 @@ function RecyclePage() {
 
   const nextStep = () => {
     const next = getNextStep(currentStep);
-    if (next) {
+    if (next && next !== currentStep) {
       setCurrentStep(next);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
@@ -414,8 +422,7 @@ function RecyclePage() {
     const currentIdx = steps.findIndex(s => s.id === currentStep);
     let prevIdx = currentIdx - 1;
     
-    // 如果上一步是附件步骤，但当前型号没有附件，则继续往前跳
-    while (prevIdx >= 0 && steps[prevIdx].id === "accessories" && (!model?.accessories || model.accessories.length === 0)) {
+    while (prevIdx >= 0 && steps[prevIdx].id === "accessories" && !hasAccessories) {
       prevIdx--;
     }
     
@@ -436,14 +443,37 @@ function RecyclePage() {
     setTouchStart(0);
   };
 
+  // 处理图片上传（最多7张）
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setUploadedImage(file);
-      const reader = new FileReader();
-      reader.onloadend = () => setImagePreview(reader.result as string);
-      reader.readAsDataURL(file);
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files);
+      const remainingSlots = MAX_IMAGES - uploadedImages.length;
+      const filesToAdd = newFiles.slice(0, remainingSlots);
+      
+      filesToAdd.forEach((file) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setUploadedImages(prev => [...prev, {
+            file,
+            preview: reader.result as string,
+            id: Date.now() + Math.random().toString()
+          }]);
+        };
+        reader.readAsDataURL(file);
+      });
+      
+      if (newFiles.length > remainingSlots) {
+        alert(`最多只能上传${MAX_IMAGES}张图片`);
+      }
     }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // 删除图片
+  const removeImage = (id: string) => {
+    setUploadedImages(prev => prev.filter(img => img.id !== id));
   };
 
   const submitOrder = async () => {
@@ -454,13 +484,16 @@ function RecyclePage() {
 
     setIsSubmitting(true);
     try {
-      let imageUrl = '';
-      if (uploadedImage) {
+      // 上传多张图片
+      const imageUrls: string[] = [];
+      for (const img of uploadedImages) {
         const formData = new FormData();
-        formData.append('image', uploadedImage);
+        formData.append('image', img.file);
         const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
         const uploadData = await uploadRes.json();
-        if (uploadData.success) imageUrl = uploadData.url;
+        if (uploadData.success) {
+          imageUrls.push(uploadData.url);
+        }
       }
 
       const response = await fetch('/api/order', {
@@ -470,7 +503,8 @@ function RecyclePage() {
           brand: brandName, model: modelName, phone: phoneNumber,
           condition, usage, fault,
           accessories: JSON.stringify(selectedAccessories),
-          estimate: estimate.toString(), imageUrl,
+          estimate: estimate.toString(),
+          imageUrl: imageUrls.join(','),
         }),
       });
 
@@ -478,8 +512,7 @@ function RecyclePage() {
       if (response.ok && data.success) {
         alert('提交成功！订单号：' + data.data.orderNo);
         setPhoneNumber("");
-        setUploadedImage(null);
-        setImagePreview(null);
+        setUploadedImages([]);
         setShowEstimate(false);
         setCurrentStep("brand");
         if (fileInputRef.current) fileInputRef.current.value = "";
@@ -498,8 +531,7 @@ function RecyclePage() {
     setCurrentStep("brand");
     setSelectedAccessories([]);
     setPhoneNumber("");
-    setUploadedImage(null);
-    setImagePreview(null);
+    setUploadedImages([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -511,9 +543,9 @@ function RecyclePage() {
     );
   }
 
-  // 计算实际显示的步骤（跳过无附件的附件步骤）
+  // 计算实际显示的步骤
   const visibleSteps = steps.filter(step => {
-    if (step.id === "accessories" && (!model?.accessories || model.accessories.length === 0)) {
+    if (step.id === "accessories" && !hasAccessories) {
       return false;
     }
     return true;
@@ -556,22 +588,6 @@ function RecyclePage() {
         </div>
       )}
 
-      {/* 估价卡片 - 只在最后一步（联系方式）显示 */}
-      {!showEstimate && currentStep === "contact" && (
-        <div className="sticky top-[129px] z-40 bg-gradient-to-r from-black to-neutral-800 text-white mx-4 mt-4 rounded-2xl p-4 shadow-lg">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs opacity-70">当前估价</div>
-              <div className="text-2xl font-bold">¥{estimate}</div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs opacity-70">{brandName}</div>
-              <div className="text-sm font-medium">{modelName}</div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 主内容 */}
       <div className="max-w-md mx-auto px-4 py-6" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         {!showEstimate ? (
@@ -595,7 +611,7 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 型号选择 - 不显示原价 */}
+            {/* 型号选择 */}
             {currentStep === "model" && (
               <div className="space-y-3">
                 {brand?.models.map((m) => (
@@ -654,10 +670,10 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 附件选择 - 直接显示后台价格 */}
-            {currentStep === "accessories" && model?.accessories && model.accessories.length > 0 && (
+            {/* 附件选择 */}
+            {currentStep === "accessories" && hasAccessories && (
               <div className="space-y-3">
-                {model.accessories.map((a) => (
+                {model?.accessories?.map((a) => (
                   <button key={a.name} onClick={() => { setSelectedAccessories(prev => prev.includes(a.name) ? prev.filter(x => x !== a.name) : [...prev, a.name]); }} className={`w-full rounded-2xl p-5 text-left ${selectedAccessories.includes(a.name) ? "bg-black text-white" : "bg-white shadow-sm"}`}>
                     <div className="flex items-center justify-between">
                       <div>
@@ -677,7 +693,7 @@ function RecyclePage() {
             {/* 联系方式 */}
             {currentStep === "contact" && (
               <div className="space-y-6">
-                {/* 估价卡片（内嵌） */}
+                {/* 当前估价卡片 */}
                 <div className="bg-gradient-to-r from-black to-neutral-800 text-white rounded-2xl p-5 shadow-lg">
                   <div className="flex items-center justify-between">
                     <div>
@@ -691,22 +707,47 @@ function RecyclePage() {
                   </div>
                 </div>
 
+                {/* 手机号码 */}
                 <div className="bg-white rounded-2xl p-6 shadow-sm">
                   <label className="block text-sm font-medium mb-2">手机号码</label>
                   <input type="tel" placeholder="请输入手机号码" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-lg focus:outline-none focus:border-black" />
                   <p className="text-xs text-neutral-500 mt-2">用于接收回收订单通知</p>
                 </div>
+
+                {/* 多图上传 */}
                 <div className="bg-white rounded-2xl p-6 shadow-sm">
-                  <label className="block text-sm font-medium mb-3">上传设备图片（可选）</label>
+                  <label className="block text-sm font-medium mb-3">上传设备图片（最多{MAX_IMAGES}张）</label>
                   <label className="border-2 border-dashed border-neutral-300 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-black transition">
                     <Camera size={40} className="text-neutral-400" />
-                    <div className="mt-3 font-medium">{uploadedImage ? uploadedImage.name : "点击上传打印机图片"}</div>
-                    <div className="text-sm text-neutral-500 mt-1">支持 JPG / PNG</div>
-                    <input ref={fileInputRef} type="file" className="hidden" accept="image/jpeg,image/png,image/jpg" onChange={handleFileChange} multiple={false} />
+                    <div className="mt-3 font-medium">点击上传打印机图片</div>
+                    <div className="text-sm text-neutral-500 mt-1">支持 JPG / PNG，最多{MAX_IMAGES}张</div>
+                    <input ref={fileInputRef} type="file" className="hidden" accept="image/jpeg,image/png,image/jpg" onChange={handleFileChange} multiple />
                   </label>
-                  {imagePreview && (<div className="mt-4"><div className="text-sm text-gray-500 mb-2">图片预览：</div><div className="relative inline-block"><img src={imagePreview} alt="预览" className="w-32 h-32 object-cover rounded-xl border" /><button onClick={() => { setUploadedImage(null); setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"><X size={14} /></button></div></div>)}
+                  
+                  {/* 图片预览网格 */}
+                  {uploadedImages.length > 0 && (
+                    <div className="mt-4">
+                      <div className="text-sm text-gray-500 mb-2">已上传 {uploadedImages.length}/{MAX_IMAGES} 张：</div>
+                      <div className="grid grid-cols-4 gap-2">
+                        {uploadedImages.map((img) => (
+                          <div key={img.id} className="relative">
+                            <img src={img.preview} alt="预览" className="w-full h-24 object-cover rounded-lg border" />
+                            <button
+                              onClick={() => removeImage(img.id)}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <button onClick={submitOrder} disabled={isSubmitting} className="w-full bg-black text-white rounded-2xl py-5 font-semibold text-lg disabled:opacity-50">{isSubmitting ? "提交中..." : "确认提交"}</button>
+
+                <button onClick={submitOrder} disabled={isSubmitting} className="w-full bg-black text-white rounded-2xl py-5 font-semibold text-lg disabled:opacity-50">
+                  {isSubmitting ? "提交中..." : "确认提交"}
+                </button>
               </div>
             )}
           </div>
@@ -733,13 +774,13 @@ function RecyclePage() {
 
             {/* 未来估价趋势表 */}
             <div className="bg-white rounded-3xl p-6 shadow-sm">
-              <h3 className="font-semibold mb-4">预估回收价趋势</h3>
+              <h3 className="font-semibold mb-4">📉 预估回收价趋势</h3>
               <div className="space-y-4">
                 {/* 3个月后 */}
                 <div>
                   <div className="flex justify-between text-sm mb-2">
-                    <span>3个月后</span>
-                    <span className="font-medium">¥{futurePrices.threeMonth}</span>
+                    <span className="text-neutral-600">3个月后</span>
+                    <span className="font-bold text-lg">¥{futurePrices.threeMonth}</span>
                   </div>
                   <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
                     <div className="bg-black/80 h-2 rounded-full" style={{ width: `${(futurePrices.threeMonth / estimate) * 100}%` }} />
@@ -748,8 +789,8 @@ function RecyclePage() {
                 {/* 6个月后 */}
                 <div>
                   <div className="flex justify-between text-sm mb-2">
-                    <span>6个月后</span>
-                    <span className="font-medium">¥{futurePrices.sixMonth}</span>
+                    <span className="text-neutral-600">6个月后</span>
+                    <span className="font-bold text-lg">¥{futurePrices.sixMonth}</span>
                   </div>
                   <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
                     <div className="bg-black/60 h-2 rounded-full" style={{ width: `${(futurePrices.sixMonth / estimate) * 100}%` }} />
@@ -758,8 +799,8 @@ function RecyclePage() {
                 {/* 9个月后 */}
                 <div>
                   <div className="flex justify-between text-sm mb-2">
-                    <span>9个月后</span>
-                    <span className="font-medium">¥{futurePrices.nineMonth}</span>
+                    <span className="text-neutral-600">9个月后</span>
+                    <span className="font-bold text-lg">¥{futurePrices.nineMonth}</span>
                   </div>
                   <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
                     <div className="bg-black/40 h-2 rounded-full" style={{ width: `${(futurePrices.nineMonth / estimate) * 100}%` }} />
