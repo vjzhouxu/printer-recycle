@@ -38,7 +38,7 @@ type PrinterModel = {
   name: string;
   releaseYear: number;
   originalPrice: number;
-  basePrice?: number;
+  basePrice?: number;  // 基准回收价
   accessories?: Accessory[];
 };
 
@@ -199,7 +199,7 @@ function OrderQueryPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">估价</span>
-                      <span className="font-bold text-lg">¥{order.estimatePrice}</span>
+                      <span className="font-bold text-lg">¥{order.finalPrice || order.estimatePrice}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">提交时间</span>
@@ -233,6 +233,10 @@ function AdminPage() {
   const [editingCoefficient, setEditingCoefficient] = useState<Coefficient | null>(null)
   const [newBrandName, setNewBrandName] = useState("")
   const [newModel, setNewModel] = useState<any>({})
+  const [editingBasePrice, setEditingBasePrice] = useState<any>(null)
+  const [newBasePrice, setNewBasePrice] = useState(0)
+  const [editingOrderPrice, setEditingOrderPrice] = useState<any>(null)
+  const [newOrderPrice, setNewOrderPrice] = useState(0)
 
   const ADMIN_KEY = "admin123456"
 
@@ -292,12 +296,34 @@ function AdminPage() {
     } catch (error) { alert('更新失败') }
   }
 
+  const updateOrderPrice = async (id: string, finalPrice: number) => {
+    try {
+      const res = await fetch('/api/admin-orders', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ADMIN_KEY}` },
+        body: JSON.stringify({ id, finalPrice })
+      })
+      if (res.ok) { fetchOrders(); setEditingOrderPrice(null); alert('报价修改成功') }
+    } catch (error) { alert('修改失败') }
+  }
+
   const updateAccessoryInDB = async (brand: string, model: string, accessories: any[]) => {
     try {
       const res = await fetch('/api/product-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ brand, model, accessories })
+      })
+      return (await res.json()).success
+    } catch (error) { return false }
+  }
+
+  const updateBasePriceInDB = async (brand: string, model: string, basePrice: number) => {
+    try {
+      const res = await fetch('/api/product-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand, model, basePrice })
       })
       return (await res.json()).success
     } catch (error) { return false }
@@ -337,6 +363,27 @@ function AdminPage() {
     alert('附件价格已更新')
   }
 
+  const updateBasePrice = async (brandName: string, modelName: string, newBasePrice: number) => {
+    const updatedBrands = brands.map(b => {
+      if (b.name === brandName) {
+        return {
+          ...b,
+          models: b.models.map(m => {
+            if (m.name === modelName) {
+              return { ...m, basePrice: newBasePrice }
+            }
+            return m
+          })
+        }
+      }
+      return b
+    })
+    setBrands(updatedBrands)
+    await updateBasePriceInDB(brandName, modelName, newBasePrice)
+    setEditingBasePrice(null)
+    alert('基准回收价已更新')
+  }
+
   const updateCoefficient = async (coeff: Coefficient, newFactor: number) => {
     const success = await updateCoefficientInDB(coeff.category, coeff.label, newFactor)
     if (success) {
@@ -360,7 +407,7 @@ function AdminPage() {
     if (!newModel.name) return
     setBrands(brands.map(b => {
       if (b.name === brandName) {
-        return { ...b, models: [...b.models, { name: newModel.name, releaseYear: newModel.releaseYear || 2024, originalPrice: newModel.originalPrice || 0, accessories: [] }] }
+        return { ...b, models: [...b.models, { name: newModel.name, releaseYear: newModel.releaseYear || 2024, originalPrice: newModel.originalPrice || 0, basePrice: newModel.basePrice || 0, accessories: [] }] }
       }
       return b
     }))
@@ -468,7 +515,6 @@ function AdminPage() {
             </button>
           </div>
           
-          {/* Tab 切换 - 4个标签 */}
           <div className="flex gap-4 mt-6 border-b overflow-x-auto">
             <button
               onClick={() => setActiveTab("orders")}
@@ -549,12 +595,22 @@ function AdminPage() {
                             order.status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                           }`}>{getStatusText(order.status)}</span>
                         </div>
-                        <div className="mt-2"><div className="font-semibold text-lg">{order.brand} {order.model}</div><div className="text-sm text-gray-500">估价: ¥{order.estimatePrice}</div></div>
+                        <div className="mt-2"><div className="font-semibold text-lg">{order.brand} {order.model}</div>
+                        <div className="text-sm text-gray-500">估价: ¥{order.finalPrice || order.estimatePrice}</div></div>
                       </div>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <div className="text-gray-500">{new Date(order.createdAt).toLocaleString()}</div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
+                        {/* 修改报价按钮 - 只要不是已完成状态都可以修改 */}
+                        {order.status !== 'COMPLETED' && (
+                          <button
+                            onClick={() => { setEditingOrderPrice(order); setNewOrderPrice(order.finalPrice || order.estimatePrice); }}
+                            className="px-3 py-1 bg-purple-500 text-white rounded-lg text-sm flex items-center gap-1"
+                          >
+                            <DollarSign size={14} /> 修改报价
+                          </button>
+                        )}
                         {order.status === 'PENDING' && (
                           <>
                             <button onClick={() => updateOrderStatus(order.id, 'PROCESSING')} className="px-3 py-1 bg-blue-500 text-white rounded-lg text-sm">开始处理</button>
@@ -562,7 +618,10 @@ function AdminPage() {
                           </>
                         )}
                         {order.status === 'PROCESSING' && (
-                          <button onClick={() => updateOrderStatus(order.id, 'COMPLETED')} className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm">完成回收</button>
+                          <>
+                            <button onClick={() => updateOrderStatus(order.id, 'COMPLETED')} className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm">完成回收</button>
+                            <button onClick={() => updateOrderStatus(order.id, 'CANCELLED')} className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm">取消</button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -592,6 +651,7 @@ function AdminPage() {
                     <input type="text" placeholder="型号名称" value={newModel.name || ''} onChange={(e) => setNewModel({ ...newModel, name: e.target.value })} className="flex-1 border rounded-lg px-3 py-2 text-sm" />
                     <input type="number" placeholder="年份" value={newModel.releaseYear || ''} onChange={(e) => setNewModel({ ...newModel, releaseYear: parseInt(e.target.value) })} className="w-24 border rounded-lg px-3 py-2 text-sm" />
                     <input type="number" placeholder="原价" value={newModel.originalPrice || ''} onChange={(e) => setNewModel({ ...newModel, originalPrice: parseInt(e.target.value) })} className="w-28 border rounded-lg px-3 py-2 text-sm" />
+                    <input type="number" placeholder="基准回收价" value={newModel.basePrice || ''} onChange={(e) => setNewModel({ ...newModel, basePrice: parseInt(e.target.value) })} className="w-28 border rounded-lg px-3 py-2 text-sm" />
                     <button onClick={() => addModel(brand.name)} className="bg-black text-white px-3 py-2 rounded-lg text-sm">添加型号</button>
                   </div>
                 </div>
@@ -599,8 +659,17 @@ function AdminPage() {
                   {brand.models.map((model) => (
                     <div key={model.name} className="border rounded-xl p-4">
                       <div className="flex items-center justify-between mb-3">
-                        <div><div className="font-medium">{model.name}</div><div className="text-sm text-gray-500">{model.releaseYear}年 · 原价 ¥{model.originalPrice}</div></div>
-                        <button onClick={() => deleteModel(brand.name, model.name)} className="text-red-500"><Trash2 size={16} /></button>
+                        <div>
+                          <div className="font-medium">{model.name}</div>
+                          <div className="text-sm text-gray-500">{model.releaseYear}年 · 原价 ¥{model.originalPrice}</div>
+                          <div className="text-sm text-blue-600 mt-1">基准回收价: ¥{model.basePrice || '未设置'}</div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => { setEditingBasePrice({ brand: brand.name, model: model.name, currentPrice: model.basePrice || 0 }); setNewBasePrice(model.basePrice || 0); }} className="text-green-600 hover:text-green-800">
+                            <DollarSign size={16} /> 设置基准价
+                          </button>
+                          <button onClick={() => deleteModel(brand.name, model.name)} className="text-red-500"><Trash2 size={16} /></button>
+                        </div>
                       </div>
                       {model.accessories && model.accessories.length > 0 && (
                         <div className="mt-3 pt-3 border-t">
@@ -718,6 +787,34 @@ function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* 修改订单报价弹窗 */}
+      {editingOrderPrice && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold mb-4">修改订单报价</h3>
+            <div className="mb-4"><div className="text-sm text-gray-500 mb-1">订单号</div><div className="font-mono">{editingOrderPrice.orderNo}</div></div>
+            <div className="mb-4"><div className="text-sm text-gray-500 mb-1">设备</div><div>{editingOrderPrice.brand} {editingOrderPrice.model}</div></div>
+            <div className="mb-4"><div className="text-sm text-gray-500 mb-1">原估价</div><div className="text-lg">¥{editingOrderPrice.estimatePrice}</div></div>
+            <div className="mb-6"><div className="text-sm text-gray-500 mb-1">新报价</div><input type="number" value={newOrderPrice} onChange={(e) => setNewOrderPrice(parseInt(e.target.value))} className="w-full border rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-black" /></div>
+            <div className="flex gap-3"><button onClick={() => updateOrderPrice(editingOrderPrice.id, newOrderPrice)} className="flex-1 bg-black text-white py-3 rounded-xl font-semibold">确认修改</button><button onClick={() => setEditingOrderPrice(null)} className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold">取消</button></div>
+          </div>
+        </div>
+      )}
+
+      {/* 设置基准回收价弹窗 */}
+      {editingBasePrice && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold mb-4">设置基准回收价</h3>
+            <div className="mb-4"><div className="text-sm text-gray-500 mb-1">品牌型号</div><div>{editingBasePrice.brand} {editingBasePrice.model}</div></div>
+            <div className="mb-4"><div className="text-sm text-gray-500 mb-1">当前基准价</div><div className="text-lg">¥{editingBasePrice.currentPrice || '未设置'}</div></div>
+            <div className="mb-6"><div className="text-sm text-gray-500 mb-1">新基准价</div><input type="number" value={newBasePrice} onChange={(e) => setNewBasePrice(parseInt(e.target.value))} className="w-full border rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-black" placeholder="输入回收基准价格" /></div>
+            <div className="flex gap-3"><button onClick={() => updateBasePrice(editingBasePrice.brand, editingBasePrice.model, newBasePrice)} className="flex-1 bg-black text-white py-3 rounded-xl font-semibold">确认设置</button><button onClick={() => setEditingBasePrice(null)} className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold">取消</button></div>
+            <p className="text-xs text-gray-400 mt-4 text-center">基准价是计算最终回收价的基础，最终价格 = 基准价 × 成色系数 × 使用时间系数 × 故障系数 + 附件增值</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -811,8 +908,10 @@ function RecyclePage() {
 
   const estimate = useMemo(() => {
     if (!model) return 0;
+    // 使用基准回收价
     let basePrice = model.basePrice || 0;
     if (basePrice === 0) {
+      // 如果没有设置基准价，使用原价计算
       let baseFactor = 0.45;
       if (model.releaseYear === 2024) baseFactor = 0.55;
       if (model.releaseYear === 2025) baseFactor = 0.75;
@@ -1183,9 +1282,7 @@ function RecyclePage() {
 // 主入口 - 根据 URL 参数显示不同页面
 // ============================================
 export default function App() {
-  // 检查是否是后台页面
   const isAdmin = window.location.search.includes('admin=true') || window.location.hash.includes('admin')
-  // 检查是否是订单查询页面
   const isQuery = window.location.search.includes('query=true') || window.location.hash.includes('query')
   
   if (isAdmin) {
