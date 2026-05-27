@@ -18,9 +18,17 @@ import {
   Search,
   X,
   ArrowLeft,
-  Image as ImageIcon,
+  DollarSign,
+  Key,
+  Edit,
+  Trash2,
+  Plus,
+  Save,
 } from "lucide-react";
 
+// ============================================
+// 类型定义
+// ============================================
 type Accessory = {
   name: string;
   value: number;
@@ -30,7 +38,7 @@ type PrinterModel = {
   name: string;
   releaseYear: number;
   originalPrice: number;
-  basePrice?: number; // 新增：手动设置的基准价
+  basePrice?: number;
   accessories?: Accessory[];
 };
 
@@ -39,13 +47,29 @@ type Brand = {
   models: PrinterModel[];
 };
 
+type Coefficient = {
+  id: string;
+  category: string;
+  label: string;
+  factor: number;
+  description: string;
+};
+
+type User = {
+  id: string;
+  username: string;
+  password: string;
+  role: string;
+  createdAt: string;
+};
+
 type UploadedImage = {
   file: File;
   preview: string;
   id: string;
 };
 
-// 默认数据（API 失败时的后备）
+// 默认数据
 const DEFAULT_CONDITIONS = [
   { label: "99新", factor: 1.1, description: "几乎全新，无使用痕迹" },
   { label: "95新", factor: 1, description: "轻微使用痕迹" },
@@ -69,8 +93,8 @@ const DEFAULT_FAULTS = [
   { label: "无法开机", factor: 0.55, description: "无法正常使用" },
 ];
 
-// 品牌排序顺序（市场份额从高到低）
 const BRAND_ORDER = ["拓竹", "创想三维", "闪铸"];
+const ADMIN_KEY = "admin123456";
 
 type Step = "brand" | "model" | "condition" | "usage" | "fault" | "accessories" | "contact";
 
@@ -201,6 +225,130 @@ function OrderQueryPage() {
 }
 
 // ============================================
+// 后台管理页面
+// ============================================
+function AdminPage() {
+  const [isAuthed, setIsAuthed] = useState(false)
+  const [password, setPassword] = useState("")
+  const [activeTab, setActiveTab] = useState("orders")
+  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [status, setStatus] = useState("all")
+
+  const handleLogin = () => {
+    if (password === ADMIN_KEY) {
+      setIsAuthed(true)
+      fetchOrders()
+    } else {
+      alert("密码错误")
+    }
+  }
+
+  const fetchOrders = async () => {
+    try {
+      const res = await fetch(`/api/admin-orders?status=${status}`, {
+        headers: { Authorization: `Bearer ${ADMIN_KEY}` }
+      })
+      const data = await res.json()
+      if (data.success) setOrders(data.data)
+    } catch (error) {
+      console.error("获取订单失败:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getStatusText = (s: string) => {
+    switch (s) {
+      case "PENDING": return "待审核"
+      case "PROCESSING": return "处理中"
+      case "COMPLETED": return "已完成"
+      case "CANCELLED": return "已取消"
+      default: return s
+    }
+  }
+
+  if (!isAuthed) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white rounded-2xl p-8 shadow-lg w-96">
+          <h1 className="text-2xl font-bold mb-6">3D打印机回收后台</h1>
+          <p className="text-gray-500 mb-4">请输入管理密码</p>
+          <input
+            type="password"
+            placeholder="密码"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+            className="w-full border rounded-xl px-4 py-3 mb-4 focus:outline-none focus:border-black"
+          />
+          <button onClick={handleLogin} className="w-full bg-black text-white py-3 rounded-xl font-semibold">
+            登录
+          </button>
+          <p className="text-xs text-gray-400 text-center mt-4">默认密码: admin123456</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">3D打印机回收后台</h1>
+              <p className="text-gray-500 mt-1">订单管理</p>
+            </div>
+            <button onClick={() => setIsAuthed(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-black">
+              退出登录
+            </button>
+          </div>
+          <div className="flex gap-4 mt-6 border-b">
+            <button onClick={() => setActiveTab("orders")} className={`pb-3 px-2 text-sm font-medium ${activeTab === "orders" ? "text-black border-b-2 border-black" : "text-gray-500"}`}>
+              订单管理
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="flex gap-3 mb-6">
+          {["all", "PENDING", "PROCESSING", "COMPLETED", "CANCELLED"].map((s) => (
+            <button key={s} onClick={() => setStatus(s)} className={`px-4 py-2 rounded-full text-sm ${status === s ? "bg-black text-white" : "bg-white text-gray-600"}`}>
+              {s === "all" ? "全部" : getStatusText(s)}
+            </button>
+          ))}
+        </div>
+        {loading ? (
+          <div className="text-center py-12">加载中...</div>
+        ) : orders.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">暂无订单</div>
+        ) : (
+          <div className="space-y-4">
+            {orders.map((order) => (
+              <div key={order.id} className="bg-white rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-mono text-sm text-gray-500">{order.orderNo}</span>
+                  <span className="px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">{getStatusText(order.status)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <div className="font-semibold">{order.brand} {order.model}</div>
+                    <div className="text-sm text-gray-500">估价: ¥{order.estimatePrice}</div>
+                    <div className="text-sm text-gray-500">{order.phone}</div>
+                  </div>
+                  <div className="text-sm text-gray-500">{new Date(order.createdAt).toLocaleString()}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ============================================
 // 主回收页面
 // ============================================
 function RecyclePage() {
@@ -224,7 +372,6 @@ function RecyclePage() {
   const [touchStart, setTouchStart] = useState<number>(0);
   const MAX_IMAGES = 7;
 
-  // 排序函数
   const sortConditionsByFactor = (conds: any[]) => [...conds].sort((a, b) => b.factor - a.factor);
   const sortUsagesByFactor = (usagesList: any[]) => [...usagesList].sort((a, b) => b.factor - a.factor);
   const sortFaultsByFactor = (faultsList: any[]) => [...faultsList].sort((a, b) => b.factor - a.factor);
@@ -238,7 +385,6 @@ function RecyclePage() {
     return indexA - indexB;
   });
 
-  // 加载数据
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
@@ -274,43 +420,12 @@ function RecyclePage() {
         }
       } catch (error) {
         console.error('加载数据失败:', error);
-        setConditions(sortConditionsByFactor(DEFAULT_CONDITIONS));
-        setUsages(sortUsagesByFactor(DEFAULT_USAGES));
-        setFaults(sortFaultsByFactor(DEFAULT_FAULTS));
       } finally {
         setLoading(false);
       }
     };
     
     loadData();
-  }, []);
-
-  // 刷新品牌数据
-  const refreshBrands = async () => {
-    try {
-      const res = await fetch('/api/product-config');
-      const data = await res.json();
-      if (data.success && data.data.length > 0) {
-        const sortedBrands = data.data.map((brand: Brand) => ({
-          ...brand,
-          models: sortModelsByPremium(brand.models)
-        }));
-        const finalBrands = sortBrandsByOrder(sortedBrands);
-        setBrands(finalBrands);
-      }
-    } catch (error) {
-      console.error('刷新数据失败:', error);
-    }
-  };
-
-  useEffect(() => {
-    const interval = setInterval(refreshBrands, 30000);
-    const handleVisibilityChange = () => { if (!document.hidden) refreshBrands(); };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
   }, []);
 
   const brand = useMemo(() => brands.find((b) => b.name === brandName), [brands, brandName]);
@@ -320,28 +435,21 @@ function RecyclePage() {
   const usageFactor = usages.find((u) => u.label === usage)?.factor || 1;
   const faultFactor = faults.find((f) => f.label === fault)?.factor || 1;
 
-  // 估价计算：使用基准价（basePrice）或原价
   const estimate = useMemo(() => {
     if (!model) return 0;
-    
-    // 优先使用手动设置的基准价，否则使用原价乘以年份系数
     let basePrice = model.basePrice || 0;
     if (basePrice === 0) {
-      // 如果没有设置基准价，使用原价计算
       let baseFactor = 0.45;
       if (model.releaseYear === 2024) baseFactor = 0.55;
       if (model.releaseYear === 2025) baseFactor = 0.75;
       basePrice = model.originalPrice * baseFactor;
     }
-    
     const accessoriesPrice = model.accessories
       ?.filter((a) => selectedAccessories.includes(a.name))
       .reduce((sum, a) => sum + a.value, 0) || 0;
-
     return Math.round(basePrice * conditionFactor * usageFactor * faultFactor + accessoriesPrice);
   }, [model, conditionFactor, usageFactor, faultFactor, selectedAccessories]);
 
-  // 未来价格
   const futurePrices = useMemo(() => ({
     threeMonth: Math.round(estimate * 0.9),
     sixMonth: Math.round(estimate * 0.81),
@@ -488,7 +596,6 @@ function RecyclePage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 pb-20">
-      {/* 顶部导航 - 新标题 */}
       <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-neutral-200">
         <div className="max-w-md mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
@@ -503,7 +610,6 @@ function RecyclePage() {
         </div>
       </div>
 
-      {/* 进度条 */}
       {!showEstimate && (
         <div className="sticky top-[73px] z-40 bg-white border-b border-neutral-200">
           <div className="max-w-md mx-auto px-4 py-3">
@@ -521,21 +627,16 @@ function RecyclePage() {
         </div>
       )}
 
-      {/* 主内容 */}
       <div className="max-w-md mx-auto px-4 py-6" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         {!showEstimate ? (
           <div className="animate-fadeIn">
-            {/* 非联系方式步骤显示标题 */}
             {currentStep !== "contact" && (
-              <>
-                <div className="mb-4">
-                  <h2 className="text-2xl font-bold">{steps.find(s => s.id === currentStep)?.title}</h2>
-                  <p className="text-neutral-500 text-sm mt-1">请选择以下选项</p>
-                </div>
-              </>
+              <div className="mb-4">
+                <h2 className="text-2xl font-bold">{steps.find(s => s.id === currentStep)?.title}</h2>
+                <p className="text-neutral-500 text-sm mt-1">请选择以下选项</p>
+              </div>
             )}
             
-            {/* 品牌选择 */}
             {currentStep === "brand" && (
               <div className="space-y-3">
                 {brands.map((b) => (
@@ -549,16 +650,12 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 型号选择 */}
             {currentStep === "model" && (
               <div className="space-y-3">
                 {brand?.models.map((m) => (
                   <button key={m.name} onClick={() => { setModelName(m.name); setSelectedAccessories([]); nextStep(); }} className="w-full bg-white rounded-2xl p-5 text-left shadow-sm">
                     <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-semibold text-lg">{m.name}</div>
-                        <div className="text-sm text-neutral-500 mt-1">{m.releaseYear}年上市</div>
-                      </div>
+                      <div><div className="font-semibold text-lg">{m.name}</div><div className="text-sm text-neutral-500 mt-1">{m.releaseYear}年上市</div></div>
                       <ChevronRight className="text-neutral-400" />
                     </div>
                   </button>
@@ -566,7 +663,6 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 成色选择 */}
             {currentStep === "condition" && (
               <div className="space-y-3">
                 {conditions.map((c) => (
@@ -580,7 +676,6 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 使用时间选择 */}
             {currentStep === "usage" && (
               <div className="space-y-3">
                 {usages.map((u) => (
@@ -594,7 +689,6 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 故障选择 */}
             {currentStep === "fault" && (
               <div className="space-y-3">
                 {faults.map((f) => (
@@ -608,16 +702,12 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 附件选择 */}
             {currentStep === "accessories" && hasAccessories && (
               <div className="space-y-3">
                 {model?.accessories?.map((a) => (
                   <button key={a.name} onClick={() => { setSelectedAccessories(prev => prev.includes(a.name) ? prev.filter(x => x !== a.name) : [...prev, a.name]); }} className={`w-full rounded-2xl p-5 text-left ${selectedAccessories.includes(a.name) ? "bg-black text-white" : "bg-white shadow-sm"}`}>
                     <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-semibold text-lg">{a.name}</div>
-                        <div className={`text-sm mt-1 ${selectedAccessories.includes(a.name) ? "text-white/70" : "text-neutral-500"}`}>增值 ¥{a.value}</div>
-                      </div>
+                      <div><div className="font-semibold text-lg">{a.name}</div><div className={`text-sm mt-1 ${selectedAccessories.includes(a.name) ? "text-white/70" : "text-neutral-500"}`}>增值 ¥{a.value}</div></div>
                       {selectedAccessories.includes(a.name) && <Check size={24} />}
                     </div>
                   </button>
@@ -626,31 +716,21 @@ function RecyclePage() {
               </div>
             )}
 
-            {/* 联系方式 - 不显示标题 */}
             {currentStep === "contact" && (
               <div className="space-y-6">
-                {/* 当前估价卡片 */}
                 <div className="bg-gradient-to-r from-black to-neutral-800 text-white rounded-2xl p-5 shadow-lg">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-xs opacity-70">当前估价</div>
-                      <div className="text-3xl font-bold">¥{estimate}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs opacity-70">{brandName}</div>
-                      <div className="text-sm font-medium">{modelName}</div>
-                    </div>
+                    <div><div className="text-xs opacity-70">当前估价</div><div className="text-3xl font-bold">¥{estimate}</div></div>
+                    <div className="text-right"><div className="text-xs opacity-70">{brandName}</div><div className="text-sm font-medium">{modelName}</div></div>
                   </div>
                 </div>
 
-                {/* 手机号码 */}
                 <div className="bg-white rounded-2xl p-6 shadow-sm">
                   <label className="block text-sm font-medium mb-2">手机号码</label>
                   <input type="tel" placeholder="请输入手机号码" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-lg focus:outline-none focus:border-black" />
                   <p className="text-xs text-neutral-500 mt-2">用于接收回收订单通知</p>
                 </div>
 
-                {/* 多图上传 */}
                 <div className="bg-white rounded-2xl p-6 shadow-sm">
                   <label className="block text-sm font-medium mb-3">上传设备图片（最多{MAX_IMAGES}张）</label>
                   <label className="border-2 border-dashed border-neutral-300 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-black transition">
@@ -683,14 +763,12 @@ function RecyclePage() {
           </div>
         ) : (
           <div className="animate-fadeIn space-y-4">
-            {/* 当前估价 */}
             <div className="bg-gradient-to-br from-black to-neutral-900 text-white rounded-3xl p-8 text-center">
               <div className="text-sm opacity-70 mb-2">最高回收价</div>
               <div className="text-6xl font-bold">¥{estimate}</div>
               <div className="text-sm opacity-70 mt-3">最终价格以人工检测为准</div>
             </div>
 
-            {/* 回收信息汇总 */}
             <div className="bg-white rounded-3xl p-6 shadow-sm">
               <h3 className="font-semibold mb-4">回收信息</h3>
               <div className="space-y-3 text-sm">
@@ -702,37 +780,12 @@ function RecyclePage() {
               </div>
             </div>
 
-            {/* 未来估价趋势表 */}
             <div className="bg-white rounded-3xl p-6 shadow-sm">
               <h3 className="font-semibold mb-4">📉 预估回收价趋势</h3>
               <div className="space-y-4">
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-neutral-600">3个月后</span>
-                    <span className="font-bold text-lg">¥{futurePrices.threeMonth}</span>
-                  </div>
-                  <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
-                    <div className="bg-black/80 h-2 rounded-full" style={{ width: `${(futurePrices.threeMonth / estimate) * 100}%` }} />
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-neutral-600">6个月后</span>
-                    <span className="font-bold text-lg">¥{futurePrices.sixMonth}</span>
-                  </div>
-                  <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
-                    <div className="bg-black/60 h-2 rounded-full" style={{ width: `${(futurePrices.sixMonth / estimate) * 100}%` }} />
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-neutral-600">9个月后</span>
-                    <span className="font-bold text-lg">¥{futurePrices.nineMonth}</span>
-                  </div>
-                  <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
-                    <div className="bg-black/40 h-2 rounded-full" style={{ width: `${(futurePrices.nineMonth / estimate) * 100}%` }} />
-                  </div>
-                </div>
+                <div><div className="flex justify-between text-sm mb-2"><span>3个月后</span><span className="font-bold">¥{futurePrices.threeMonth}</span></div><div className="w-full bg-gray-200 h-2 rounded-full"><div className="bg-black/80 h-2 rounded-full" style={{ width: `${(futurePrices.threeMonth / estimate) * 100}%` }} /></div></div>
+                <div><div className="flex justify-between text-sm mb-2"><span>6个月后</span><span className="font-bold">¥{futurePrices.sixMonth}</span></div><div className="w-full bg-gray-200 h-2 rounded-full"><div className="bg-black/60 h-2 rounded-full" style={{ width: `${(futurePrices.sixMonth / estimate) * 100}%` }} /></div></div>
+                <div><div className="flex justify-between text-sm mb-2"><span>9个月后</span><span className="font-bold">¥{futurePrices.nineMonth}</span></div><div className="w-full bg-gray-200 h-2 rounded-full"><div className="bg-black/40 h-2 rounded-full" style={{ width: `${(futurePrices.nineMonth / estimate) * 100}%` }} /></div></div>
               </div>
               <p className="text-xs text-neutral-400 mt-4 text-center">* 预估价格仅供参考，每3个月预计降价10%</p>
             </div>
@@ -753,10 +806,20 @@ function RecyclePage() {
 }
 
 // ============================================
-// 主入口
+// 主入口 - 根据 URL 参数显示不同页面
 // ============================================
 export default function App() {
-  const isQuery = window.location.search.includes('query=true')
+  // 检查是否是后台页面
+  const isAdmin = window.location.search.includes('admin=true') || window.location.hash.includes('admin')
+  
+  // 检查是否是订单查询页面
+  const isQuery = window.location.search.includes('query=true') || window.location.hash.includes('query')
+  
+  console.log('当前路由:', { isAdmin, isQuery, url: window.location.href })
+  
+  if (isAdmin) {
+    return <AdminPage />
+  }
   
   if (isQuery) {
     return <OrderQueryPage />
