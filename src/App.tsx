@@ -55,14 +55,6 @@ type Coefficient = {
   description: string;
 };
 
-type User = {
-  id: string;
-  username: string;
-  password: string;
-  role: string;
-  createdAt: string;
-};
-
 type UploadedImage = {
   file: File;
   preview: string;
@@ -232,13 +224,24 @@ function AdminPage() {
   const [password, setPassword] = useState("")
   const [activeTab, setActiveTab] = useState("orders")
   const [orders, setOrders] = useState<any[]>([])
+  const [brands, setBrands] = useState<Brand[]>([])
+  const [coefficients, setCoefficients] = useState<Coefficient[]>([])
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState("all")
+  const [editingAccessory, setEditingAccessory] = useState<any>(null)
+  const [newAccessoryValue, setNewAccessoryValue] = useState(0)
+  const [editingCoefficient, setEditingCoefficient] = useState<Coefficient | null>(null)
+  const [newBrandName, setNewBrandName] = useState("")
+  const [newModel, setNewModel] = useState<any>({})
+
+  const ADMIN_KEY = "admin123456"
 
   const handleLogin = () => {
     if (password === ADMIN_KEY) {
       setIsAuthed(true)
       fetchOrders()
+      loadProductConfig()
+      loadCoefficients()
     } else {
       alert("密码错误")
     }
@@ -258,12 +261,172 @@ function AdminPage() {
     }
   }
 
+  const loadProductConfig = async () => {
+    try {
+      const res = await fetch('/api/product-config')
+      const data = await res.json()
+      if (data.success) setBrands(data.data)
+    } catch (error) {
+      console.error("加载产品失败:", error)
+    }
+  }
+
+  const loadCoefficients = async () => {
+    try {
+      const res = await fetch('/api/coefficient-config')
+      const data = await res.json()
+      if (data.success) setCoefficients(data.data)
+    } catch (error) {
+      console.error("加载系数失败:", error)
+    }
+  }
+
+  const updateOrderStatus = async (id: string, newStatus: string) => {
+    try {
+      const res = await fetch('/api/admin-orders', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ADMIN_KEY}` },
+        body: JSON.stringify({ id, status: newStatus })
+      })
+      if (res.ok) { fetchOrders(); alert('状态更新成功') }
+    } catch (error) { alert('更新失败') }
+  }
+
+  const updateAccessoryInDB = async (brand: string, model: string, accessories: any[]) => {
+    try {
+      const res = await fetch('/api/product-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand, model, accessories })
+      })
+      return (await res.json()).success
+    } catch (error) { return false }
+  }
+
+  const updateCoefficientInDB = async (category: string, label: string, factor: number) => {
+    try {
+      const res = await fetch('/api/coefficient-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, label, factor })
+      })
+      return (await res.json()).success
+    } catch (error) { return false }
+  }
+
+  const updateAccessoryValue = async (brandName: string, modelName: string, accessoryName: string, newValue: number) => {
+    const updatedBrands = brands.map(b => {
+      if (b.name === brandName) {
+        return {
+          ...b,
+          models: b.models.map(m => {
+            if (m.name === modelName && m.accessories) {
+              return { ...m, accessories: m.accessories.map(a => a.name === accessoryName ? { ...a, value: newValue } : a) }
+            }
+            return m
+          })
+        }
+      }
+      return b
+    })
+    setBrands(updatedBrands)
+    const updatedBrand = updatedBrands.find(b => b.name === brandName)
+    const updatedModel = updatedBrand?.models.find(m => m.name === modelName)
+    if (updatedModel) await updateAccessoryInDB(brandName, modelName, updatedModel.accessories || [])
+    setEditingAccessory(null)
+    alert('附件价格已更新')
+  }
+
+  const updateCoefficient = async (coeff: Coefficient, newFactor: number) => {
+    const success = await updateCoefficientInDB(coeff.category, coeff.label, newFactor)
+    if (success) {
+      setCoefficients(coefficients.map(c => c.category === coeff.category && c.label === coeff.label ? { ...c, factor: newFactor } : c))
+      alert('系数已更新')
+    } else { alert('更新失败') }
+    setEditingCoefficient(null)
+  }
+
+  const addBrand = () => {
+    if (!newBrandName) return
+    setBrands([...brands, { name: newBrandName, models: [] }])
+    setNewBrandName('')
+  }
+
+  const deleteBrand = (brandName: string) => {
+    if (confirm(`确定要删除品牌 "${brandName}" 吗？`)) setBrands(brands.filter(b => b.name !== brandName))
+  }
+
+  const addModel = (brandName: string) => {
+    if (!newModel.name) return
+    setBrands(brands.map(b => {
+      if (b.name === brandName) {
+        return { ...b, models: [...b.models, { name: newModel.name, releaseYear: newModel.releaseYear || 2024, originalPrice: newModel.originalPrice || 0, accessories: [] }] }
+      }
+      return b
+    }))
+    setNewModel({})
+  }
+
+  const deleteModel = (brandName: string, modelName: string) => {
+    if (confirm(`确定要删除型号 "${modelName}" 吗？`)) {
+      setBrands(brands.map(b => b.name === brandName ? { ...b, models: b.models.filter(m => m.name !== modelName) } : b))
+    }
+  }
+
+  const addAccessory = (brandName: string, modelName: string) => {
+    const newAccessoryName = prompt('请输入附件名称')
+    if (!newAccessoryName) return
+    const newAccessoryValue = parseInt(prompt('请输入附件价值(元)') || '0')
+    if (isNaN(newAccessoryValue)) return
+    setBrands(brands.map(b => {
+      if (b.name === brandName) {
+        return {
+          ...b,
+          models: b.models.map(m => {
+            if (m.name === modelName) {
+              return { ...m, accessories: [...(m.accessories || []), { name: newAccessoryName, value: newAccessoryValue }] }
+            }
+            return m
+          })
+        }
+      }
+      return b
+    }))
+  }
+
+  const deleteAccessory = (brandName: string, modelName: string, accessoryName: string) => {
+    if (confirm(`确定要删除附件 "${accessoryName}" 吗？`)) {
+      setBrands(brands.map(b => {
+        if (b.name === brandName) {
+          return {
+            ...b,
+            models: b.models.map(m => {
+              if (m.name === modelName && m.accessories) {
+                return { ...m, accessories: m.accessories.filter(a => a.name !== accessoryName) }
+              }
+              return m
+            })
+          }
+        }
+        return b
+      }))
+    }
+  }
+
+  useEffect(() => {
+    if (isAuthed) {
+      fetchOrders()
+      loadProductConfig()
+      loadCoefficients()
+    }
+  }, [status, isAuthed])
+
   const getStatusText = (s: string) => {
     switch (s) {
-      case "PENDING": return "待审核"
-      case "PROCESSING": return "处理中"
-      case "COMPLETED": return "已完成"
-      case "CANCELLED": return "已取消"
+      case 'PENDING': return '待审核'
+      case 'PROCESSING': return '处理中'
+      case 'COMPLETED': return '已完成'
+      case 'CANCELLED': return '已取消'
       default: return s
     }
   }
@@ -298,49 +461,260 @@ function AdminPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">3D打印机回收后台</h1>
-              <p className="text-gray-500 mt-1">订单管理</p>
+              <p className="text-gray-500 mt-1">管理订单、产品和估价系数</p>
             </div>
             <button onClick={() => setIsAuthed(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-black">
               退出登录
             </button>
           </div>
-          <div className="flex gap-4 mt-6 border-b">
-            <button onClick={() => setActiveTab("orders")} className={`pb-3 px-2 text-sm font-medium ${activeTab === "orders" ? "text-black border-b-2 border-black" : "text-gray-500"}`}>
+          
+          {/* Tab 切换 - 4个标签 */}
+          <div className="flex gap-4 mt-6 border-b overflow-x-auto">
+            <button
+              onClick={() => setActiveTab("orders")}
+              className={`pb-3 px-2 text-sm font-medium transition whitespace-nowrap ${
+                activeTab === "orders" ? "text-black border-b-2 border-black" : "text-gray-500"
+              }`}
+            >
               订单管理
+            </button>
+            <button
+              onClick={() => setActiveTab("products")}
+              className={`pb-3 px-2 text-sm font-medium transition whitespace-nowrap ${
+                activeTab === "products" ? "text-black border-b-2 border-black" : "text-gray-500"
+              }`}
+            >
+              产品管理
+            </button>
+            <button
+              onClick={() => setActiveTab("coefficients")}
+              className={`pb-3 px-2 text-sm font-medium transition whitespace-nowrap ${
+                activeTab === "coefficients" ? "text-black border-b-2 border-black" : "text-gray-500"
+              }`}
+            >
+              系数设置
+            </button>
+            <button
+              onClick={() => setActiveTab("users")}
+              className={`pb-3 px-2 text-sm font-medium transition whitespace-nowrap ${
+                activeTab === "users" ? "text-black border-b-2 border-black" : "text-gray-500"
+              }`}
+            >
+              用户管理
             </button>
           </div>
         </div>
       </div>
+
       <div className="max-w-7xl mx-auto px-4 py-6">
-        <div className="flex gap-3 mb-6">
-          {["all", "PENDING", "PROCESSING", "COMPLETED", "CANCELLED"].map((s) => (
-            <button key={s} onClick={() => setStatus(s)} className={`px-4 py-2 rounded-full text-sm ${status === s ? "bg-black text-white" : "bg-white text-gray-600"}`}>
-              {s === "all" ? "全部" : getStatusText(s)}
-            </button>
-          ))}
-        </div>
-        {loading ? (
-          <div className="text-center py-12">加载中...</div>
-        ) : orders.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">暂无订单</div>
-        ) : (
-          <div className="space-y-4">
-            {orders.map((order) => (
-              <div key={order.id} className="bg-white rounded-2xl p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="font-mono text-sm text-gray-500">{order.orderNo}</span>
-                  <span className="px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">{getStatusText(order.status)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <div className="font-semibold">{order.brand} {order.model}</div>
-                    <div className="text-sm text-gray-500">估价: ¥{order.estimatePrice}</div>
-                    <div className="text-sm text-gray-500">{order.phone}</div>
+        {/* 订单管理 */}
+        {activeTab === "orders" && (
+          <>
+            <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
+              {["all", "PENDING", "PROCESSING", "COMPLETED", "CANCELLED"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatus(s)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${
+                    status === s ? "bg-black text-white" : "bg-white text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  {s === "all" ? "全部订单" : getStatusText(s)}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white rounded-2xl p-4"><div className="text-gray-500 text-sm">总订单</div><div className="text-2xl font-bold">{orders.length}</div></div>
+              <div className="bg-white rounded-2xl p-4"><div className="text-gray-500 text-sm">待审核</div><div className="text-2xl font-bold text-yellow-600">{orders.filter(o => o.status === 'PENDING').length}</div></div>
+              <div className="bg-white rounded-2xl p-4"><div className="text-gray-500 text-sm">处理中</div><div className="text-2xl font-bold text-blue-600">{orders.filter(o => o.status === 'PROCESSING').length}</div></div>
+              <div className="bg-white rounded-2xl p-4"><div className="text-gray-500 text-sm">已完成</div><div className="text-2xl font-bold text-green-600">{orders.filter(o => o.status === 'COMPLETED').length}</div></div>
+            </div>
+
+            {loading ? (
+              <div className="text-center py-12">加载中...</div>
+            ) : orders.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">暂无订单</div>
+            ) : (
+              <div className="space-y-4">
+                {orders.map((order) => (
+                  <div key={order.id} className="bg-white rounded-2xl p-5 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-sm text-gray-500">{order.orderNo}</span>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            order.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
+                            order.status === 'PROCESSING' ? 'bg-blue-100 text-blue-800' :
+                            order.status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                          }`}>{getStatusText(order.status)}</span>
+                        </div>
+                        <div className="mt-2"><div className="font-semibold text-lg">{order.brand} {order.model}</div><div className="text-sm text-gray-500">估价: ¥{order.estimatePrice}</div></div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="text-gray-500">{new Date(order.createdAt).toLocaleString()}</div>
+                      <div className="flex gap-2">
+                        {order.status === 'PENDING' && (
+                          <>
+                            <button onClick={() => updateOrderStatus(order.id, 'PROCESSING')} className="px-3 py-1 bg-blue-500 text-white rounded-lg text-sm">开始处理</button>
+                            <button onClick={() => updateOrderStatus(order.id, 'CANCELLED')} className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm">取消</button>
+                          </>
+                        )}
+                        {order.status === 'PROCESSING' && (
+                          <button onClick={() => updateOrderStatus(order.id, 'COMPLETED')} className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm">完成回收</button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-500">{new Date(order.createdAt).toLocaleString()}</div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* 产品管理 */}
+        {activeTab === "products" && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl p-6">
+              <h3 className="font-semibold mb-4">添加新品牌</h3>
+              <div className="flex gap-3">
+                <input type="text" placeholder="品牌名称" value={newBrandName} onChange={(e) => setNewBrandName(e.target.value)} className="flex-1 border rounded-xl px-4 py-2" />
+                <button onClick={addBrand} className="bg-black text-white px-4 py-2 rounded-xl flex items-center gap-2"><Plus size={16} /> 添加</button>
+              </div>
+            </div>
+
+            {brands.map((brand) => (
+              <div key={brand.name} className="bg-white rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-semibold">{brand.name}</h3><button onClick={() => deleteBrand(brand.name)} className="text-red-500"><Trash2 size={18} /></button></div>
+                <div className="mb-4 p-4 bg-gray-50 rounded-xl">
+                  <div className="flex gap-2 flex-wrap">
+                    <input type="text" placeholder="型号名称" value={newModel.name || ''} onChange={(e) => setNewModel({ ...newModel, name: e.target.value })} className="flex-1 border rounded-lg px-3 py-2 text-sm" />
+                    <input type="number" placeholder="年份" value={newModel.releaseYear || ''} onChange={(e) => setNewModel({ ...newModel, releaseYear: parseInt(e.target.value) })} className="w-24 border rounded-lg px-3 py-2 text-sm" />
+                    <input type="number" placeholder="原价" value={newModel.originalPrice || ''} onChange={(e) => setNewModel({ ...newModel, originalPrice: parseInt(e.target.value) })} className="w-28 border rounded-lg px-3 py-2 text-sm" />
+                    <button onClick={() => addModel(brand.name)} className="bg-black text-white px-3 py-2 rounded-lg text-sm">添加型号</button>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {brand.models.map((model) => (
+                    <div key={model.name} className="border rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div><div className="font-medium">{model.name}</div><div className="text-sm text-gray-500">{model.releaseYear}年 · 原价 ¥{model.originalPrice}</div></div>
+                        <button onClick={() => deleteModel(brand.name, model.name)} className="text-red-500"><Trash2 size={16} /></button>
+                      </div>
+                      {model.accessories && model.accessories.length > 0 && (
+                        <div className="mt-3 pt-3 border-t">
+                          <div className="text-sm font-medium mb-2">附件列表：</div>
+                          <div className="space-y-2">
+                            {model.accessories.map((acc) => (
+                              <div key={acc.name} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg">
+                                <span className="text-sm">{acc.name}</span>
+                                <div className="flex items-center gap-2">
+                                  {editingAccessory?.accessory.name === acc.name && editingAccessory?.brand === brand.name && editingAccessory?.model === model.name ? (
+                                    <div className="flex gap-1">
+                                      <input type="number" value={newAccessoryValue} onChange={(e) => setNewAccessoryValue(parseInt(e.target.value))} className="w-24 border rounded px-2 py-1 text-sm" />
+                                      <button onClick={() => updateAccessoryValue(brand.name, model.name, acc.name, newAccessoryValue)} className="text-green-600"><Save size={14} /></button>
+                                      <button onClick={() => setEditingAccessory(null)} className="text-gray-500"><X size={14} /></button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <span className="text-sm text-blue-600">¥{acc.value}</span>
+                                      <button onClick={() => { setEditingAccessory({ brand: brand.name, model: model.name, accessory: acc }); setNewAccessoryValue(acc.value) }} className="text-gray-400"><Edit size={12} /></button>
+                                      <button onClick={() => deleteAccessory(brand.name, model.name, acc.name)} className="text-red-400"><Trash2 size={12} /></button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <button onClick={() => addAccessory(brand.name, model.name)} className="mt-3 text-sm text-blue-500 flex items-center gap-1"><Plus size={14} /> 添加附件</button>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* 系数设置 */}
+        {activeTab === "coefficients" && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl p-6">
+              <h3 className="font-semibold mb-4">成色系数</h3>
+              <div className="space-y-3">
+                {coefficients.filter(c => c.category === 'condition').map((c) => (
+                  <div key={c.id} className="flex items-center justify-between">
+                    <span className="w-24">{c.label}</span>
+                    {editingCoefficient?.id === c.id ? (
+                      <div className="flex gap-2">
+                        <input type="number" step="0.01" defaultValue={c.factor} id={`factor-${c.id}`} className="w-24 border rounded-lg px-3 py-1" />
+                        <button onClick={() => { const input = document.getElementById(`factor-${c.id}`) as HTMLInputElement; updateCoefficient(c, parseFloat(input.value)) }} className="text-green-600"><Save size={16} /></button>
+                        <button onClick={() => setEditingCoefficient(null)} className="text-gray-500"><X size={16} /></button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2"><span className="text-blue-600">{c.factor}</span><button onClick={() => setEditingCoefficient(c)} className="text-gray-400"><Edit size={14} /></button></div>
+                    )}
+                    <span className="text-sm text-gray-500 w-32 text-right">{c.description}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl p-6">
+              <h3 className="font-semibold mb-4">使用时间系数</h3>
+              <div className="space-y-3">
+                {coefficients.filter(c => c.category === 'usage').map((u) => (
+                  <div key={u.id} className="flex items-center justify-between">
+                    <span className="w-32">{u.label}</span>
+                    {editingCoefficient?.id === u.id ? (
+                      <div className="flex gap-2">
+                        <input type="number" step="0.01" defaultValue={u.factor} id={`factor-${u.id}`} className="w-24 border rounded-lg px-3 py-1" />
+                        <button onClick={() => { const input = document.getElementById(`factor-${u.id}`) as HTMLInputElement; updateCoefficient(u, parseFloat(input.value)) }} className="text-green-600"><Save size={16} /></button>
+                        <button onClick={() => setEditingCoefficient(null)} className="text-gray-500"><X size={16} /></button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2"><span className="text-blue-600">{u.factor}</span><button onClick={() => setEditingCoefficient(u)} className="text-gray-400"><Edit size={14} /></button></div>
+                    )}
+                    <span className="text-sm text-gray-500 w-32 text-right">{u.description}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl p-6">
+              <h3 className="font-semibold mb-4">功能故障系数</h3>
+              <div className="space-y-3">
+                {coefficients.filter(c => c.category === 'fault').map((f) => (
+                  <div key={f.id} className="flex items-center justify-between">
+                    <span className="w-32">{f.label}</span>
+                    {editingCoefficient?.id === f.id ? (
+                      <div className="flex gap-2">
+                        <input type="number" step="0.01" defaultValue={f.factor} id={`factor-${f.id}`} className="w-24 border rounded-lg px-3 py-1" />
+                        <button onClick={() => { const input = document.getElementById(`factor-${f.id}`) as HTMLInputElement; updateCoefficient(f, parseFloat(input.value)) }} className="text-green-600"><Save size={16} /></button>
+                        <button onClick={() => setEditingCoefficient(null)} className="text-gray-500"><X size={16} /></button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2"><span className="text-blue-600">{f.factor}</span><button onClick={() => setEditingCoefficient(f)} className="text-gray-400"><Edit size={14} /></button></div>
+                    )}
+                    <span className="text-sm text-gray-500 w-32 text-right">{f.description}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 用户管理 */}
+        {activeTab === "users" && (
+          <div className="bg-white rounded-2xl p-6">
+            <h3 className="font-semibold mb-4">用户管理</h3>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                <div><div className="font-medium">admin</div><div className="text-xs text-gray-500">角色: 超级管理员</div></div>
+                <span className="text-xs text-gray-400">默认账号</span>
+              </div>
+              <p className="text-sm text-gray-500 mt-4">提示：管理员密码为 admin123456</p>
+            </div>
           </div>
         )}
       </div>
@@ -811,11 +1185,8 @@ function RecyclePage() {
 export default function App() {
   // 检查是否是后台页面
   const isAdmin = window.location.search.includes('admin=true') || window.location.hash.includes('admin')
-  
   // 检查是否是订单查询页面
   const isQuery = window.location.search.includes('query=true') || window.location.hash.includes('query')
-  
-  console.log('当前路由:', { isAdmin, isQuery, url: window.location.href })
   
   if (isAdmin) {
     return <AdminPage />
